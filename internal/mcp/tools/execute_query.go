@@ -1,5 +1,5 @@
 /*
- * @desc:数据库查询工具
+ * @desc:执行 SQL 查询工具
  * @company:云南奇讯科技有限公司
  * @Author: yixiaohu<yxh669@qq.com>
  * @Date:   2025/4/23 16:13
@@ -14,6 +14,7 @@ import (
 	"gf-mcp/internal/consts"
 	"gf-mcp/internal/mcp/register"
 	"gf-mcp/library/liberr"
+	"strings"
 
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
@@ -22,42 +23,44 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// DatabaseQuery 数据库查询工具结构
-type DatabaseQuery struct{}
+// ExecuteQuery 执行 SQL 查询工具结构
+type ExecuteQuery struct{}
 
 // ReturnTool 返回工具定义
-func (t *DatabaseQuery) ReturnTool() mcp.Tool {
-	return mcp.NewTool("query_database",
-		mcp.WithDescription(`# 🔍 数据库查询工具
+func (t *ExecuteQuery) ReturnTool() mcp.Tool {
+	return mcp.NewTool("execute_query",
+		mcp.WithDescription(`# 🗃️ 执行 SQL 查询
 
 ## 🎯 工具功能
-用于执行数据库查询操作，返回查询结果。
+执行 SQL 查询或数据库命令，支持 SELECT、INSERT、UPDATE、DELETE 等操作。
 
 ## 📋 支持的操作
 - SELECT 查询
-- SHOW 语句
-- EXPLAIN 分析
-- 其他只读查询操作
-
-## ⚠️ 使用限制
-- 仅用于查询操作，不能用于修改数据
-- 如需修改数据请使用 execute_sql 工具
+- INSERT 插入数据
+- UPDATE 更新数据
+- DELETE 删除数据
+- DDL 语句（CREATE、ALTER、DROP 等）
 
 ## 💡 使用示例
-查询所有用户:
+查询用户:
 {
   "sql": "SELECT * FROM users LIMIT 10"
+}
+
+插入数据:
+{
+  "sql": "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')"
 }`),
 		mcp.WithString("sql",
 			mcp.Required(),
 			mcp.Description("SQL 查询语句")),
 		mcp.WithNumber("limit",
-			mcp.Description("结果限制条数，默认 100")),
+			mcp.Description("结果限制条数，默认 100，仅对 SELECT 查询有效")),
 	)
 }
 
 // Handler 工具处理函数
-func (t *DatabaseQuery) Handler(r *Reg) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (t *ExecuteQuery) Handler(r *Reg) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
@@ -76,7 +79,7 @@ func (t *DatabaseQuery) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 				}
 			}
 
-			// 获取数据库连接 - 使用 "default" 组名
+			// 获取数据库连接
 			var db gdb.DB
 			g.TryCatch(ctx, func(ctx context.Context) {
 				db = g.DB("default")
@@ -89,18 +92,29 @@ func (t *DatabaseQuery) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
 			}
 
-			// 执行查询
-			var queryResult gdb.Result
-			var queryErr error
-			queryResult, queryErr = db.Query(ctx, sql)
-			liberr.ErrIsNil(ctx, queryErr)
+			// 判断 SQL 类型并执行相应操作
+			sqlUpper := strings.TrimSpace(strings.ToUpper(sql))
+			if strings.HasPrefix(sqlUpper, "SELECT") || strings.HasPrefix(sqlUpper, "SHOW") || strings.HasPrefix(sqlUpper, "EXPLAIN") {
+				// 查询操作
+				queryResult, queryErr := db.Query(ctx, sql)
+				liberr.ErrIsNil(ctx, queryErr)
 
-			// 限制结果数量
-			if len(queryResult) > limit {
-				queryResult = queryResult[:limit]
+				// 限制结果数量
+				if len(queryResult) > limit {
+					queryResult = queryResult[:limit]
+				}
+
+				result = fmt.Sprintf("查询成功，返回 %d 条记录，结果为：%s", len(queryResult), gconv.String(queryResult))
+			} else {
+				// 非查询操作（INSERT、UPDATE、DELETE、DDL 等）
+				execResult, execErr := db.Exec(ctx, sql)
+				liberr.ErrIsNil(ctx, execErr)
+
+				// 获取影响行数
+				rowsAffected, _ := execResult.RowsAffected()
+				lastInsertId, _ := execResult.LastInsertId()
+				result = fmt.Sprintf("SQL 执行成功，影响行数：%d，最后插入 ID: %d", rowsAffected, lastInsertId)
 			}
-
-			result = fmt.Sprintf("查询成功，返回 %d 条记录，结果为：%s", len(queryResult), gconv.String(queryResult))
 		})
 
 		if err != nil {
@@ -111,10 +125,10 @@ func (t *DatabaseQuery) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 	}
 }
 
-// RegisterDatabaseQuery 注册数据库查询工具
-func (r *Reg) RegisterDatabaseQuery() {
+// RegisterExecuteQuery 注册执行 SQL 查询工具
+func (r *Reg) RegisterExecuteQuery() {
 	register.AddHandler(func(mcpServer *server.MCPServer) {
-		tool := new(DatabaseQuery)
+		tool := new(ExecuteQuery)
 		mcpServer.AddTool(tool.ReturnTool(), tool.Handler(r))
 	})
 }

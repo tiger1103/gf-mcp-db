@@ -14,7 +14,7 @@
 				"--password",
 				"123456",
 				"--database",
-				"crmeb"
+				"gfast-v32"
 			],
 			"disabled": false,
 			"alwaysAllow": []

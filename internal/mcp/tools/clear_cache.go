@@ -1,5 +1,5 @@
 /*
- * @desc:列出数据库工具
+ * @desc:清除 Schema 缓存工具
  * @company:云南奇讯科技有限公司
  * @Author: yixiaohu<yxh669@qq.com>
  * @Date:   2025/4/23 16:13
@@ -17,34 +17,43 @@ import (
 
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
-	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// ListDatabases 列出数据库工具结构
-type ListDatabases struct{}
+// ClearCache 清除 Schema 缓存工具结构
+type ClearCache struct{}
 
 // ReturnTool 返回工具定义
-func (t *ListDatabases) ReturnTool() mcp.Tool {
-	return mcp.NewTool("list_databases",
-		mcp.WithDescription(`# 🗄️ 列出数据库
+func (t *ClearCache) ReturnTool() mcp.Tool {
+	return mcp.NewTool("clear_cache",
+		mcp.WithDescription(`# 🗑️ 清除 Schema 缓存
 
 ## 🎯 工具功能
-列出数据库服务器中的所有数据库。
+清除数据库 Schema 缓存，当数据库结构发生变化时使用此工具刷新缓存。
 
 ## 💡 使用示例
-列出所有数据库:
-{}`),
+清除所有缓存:
+{}
+
+清除指定表的缓存:
+{
+  "table": "users"
+}`),
+		mcp.WithString("table",
+			mcp.Description("可选，指定要清除缓存的表名，不传则清除所有缓存")),
 	)
 }
 
 // Handler 工具处理函数
-func (t *ListDatabases) Handler(r *Reg) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (t *ClearCache) Handler(r *Reg) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取数据库连接 - 使用 "default" 组名
+			// 获取可选参数
+			table, _ := request.GetArguments()["table"].(string)
+
+			// 获取数据库连接
 			var db gdb.DB
 			g.TryCatch(ctx, func(ctx context.Context) {
 				db = g.DB("default")
@@ -57,21 +66,24 @@ func (t *ListDatabases) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
 			}
 
-			// 执行查询 - SHOW DATABASES
-			var queryResult gdb.Result
-			var queryErr error
-			queryResult, queryErr = db.Query(ctx, "SHOW DATABASES")
-			liberr.ErrIsNil(ctx, queryErr)
-
-			// 提取数据库名列表
-			var dbNames []string
-			for _, row := range queryResult {
-				for _, value := range row {
-					dbNames = append(dbNames, gconv.String(value))
-				}
+			// 执行 FLUSH 操作
+			var flushSql string
+			if table == "" {
+				// 清除所有表相关的缓存
+				flushSql = "FLUSH TABLES"
+			} else {
+				// 清除指定表的缓存
+				flushSql = fmt.Sprintf("FLUSH TABLES `%s`", table)
 			}
 
-			result = fmt.Sprintf("数据库服务器中共有 %d 个数据库，数据库列表：%s", len(dbNames), gconv.String(dbNames))
+			_, flushErr := db.Exec(ctx, flushSql)
+			liberr.ErrIsNil(ctx, flushErr)
+
+			if table == "" {
+				result = "Schema 缓存已清除（所有表）"
+			} else {
+				result = fmt.Sprintf("表 %s 的 Schema 缓存已清除", table)
+			}
 		})
 
 		if err != nil {
@@ -82,10 +94,10 @@ func (t *ListDatabases) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 	}
 }
 
-// RegisterListDatabases 注册列出数据库工具
-func (r *Reg) RegisterListDatabases() {
+// RegisterClearCache 注册清除 Schema 缓存工具
+func (r *Reg) RegisterClearCache() {
 	register.AddHandler(func(mcpServer *server.MCPServer) {
-		tool := new(ListDatabases)
+		tool := new(ClearCache)
 		mcpServer.AddTool(tool.ReturnTool(), tool.Handler(r))
 	})
 }
