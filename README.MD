@@ -4,45 +4,140 @@
 
 ## 功能特性
 
-- 🔗 **数据库连接** - 支持 MySQL、PostgreSQL、SQLite 等多种数据库
-- 📊 **数据查询** - 执行 SQL 查询并返回结果
-- ✏️ **数据操作** - 执行 DDL/DML 语句
-- 📋 **表管理** - 列出数据库表、查看表结构
-- 🗄️ **数据库管理** - 列出所有数据库
+| 工具名 | 用途 |
+|--------|------|
+| `execute_query` | 执行 SQL 查询或数据库命令（SELECT、INSERT、UPDATE、DELETE 等） |
+| `get_table_list` | 列出当前数据库中的所有表或匹配特定模式的表 |
+| `get_schema` | 获取数据库结构信息（所有表名、列名、数据类型、主键、索引等元数据） |
+| `get_table_info` | 获取指定表的详细信息（列定义、索引、外键、预估行数等） |
+| `clear_cache` | 清除 Schema 缓存（当数据库结构发生变化时使用） |
+| `get_enum_values` | 获取指定列的所有唯一值（用于了解 status、type 等枚举类型的可能值） |
+| `get_sample_data` | 获取表的示例数据（已自动脱敏，用于了解数据格式） |
+
+这些工具旨在帮助开发者快速了解数据库结构、安全执行查询以及获取数据样本，提高数据库开发和调试效率。
 
 ## 支持的工具 (Tools)
 
 连接数据库后，可以使用以下工具操作数据库：
 
-### 1. query_database
-数据库查询工具，用于执行 SELECT 查询操作。
+### 1. execute_query
+执行 SQL 查询或数据库命令，支持 SELECT、INSERT、UPDATE、DELETE 等操作。
 
 **参数：**
 - `sql` (必需): SQL 查询语句
-- `limit`: 结果限制条数，默认 100
+- `limit`: 结果限制条数，默认 100，仅对 SELECT 查询有效
 
-### 2. execute_sql
-SQL 语句执行器，用于执行 DDL/DML 语句。
+**使用示例：**
+```json
+{
+  "name": "execute_query",
+  "arguments": {
+    "sql": "SELECT * FROM users LIMIT 10"
+  }
+}
+```
 
-**参数：**
-- `sql` (必需): SQL 语句内容
-
-### 3. list_tables
-列出数据库表工具。
-
-**参数：**
-- `database` (必需): 数据库名称
-- `pattern`: 表名匹配模式，支持通配符 %
-
-### 4. describe_table
-查看表结构工具。
+### 2. get_table_list
+列出当前数据库中的所有表或匹配特定模式的表。
 
 **参数：**
-- `database` (必需): 数据库名称
+- `pattern`: 表名匹配模式，支持通配符 %，例如 'user%' 匹配所有以 user 开头的表名
+
+**使用示例：**
+```json
+{
+  "name": "get_table_list",
+  "arguments": {
+    "pattern": "user%"
+  }
+}
+```
+
+### 3. get_schema
+获取数据库的完整结构信息，包括所有表名、列名、数据类型、主键、索引等元数据。
+
+**参数：**
+- `pattern`: 表名匹配模式，支持通配符 %，例如 'user%' 匹配所有以 user 开头的表名
+
+**使用示例：**
+```json
+{
+  "name": "get_schema",
+  "arguments": {}
+}
+```
+
+### 4. get_table_info
+获取指定表的详细信息，包括列定义、索引、外键、表注释、预估行数等。
+
+**参数：**
 - `table` (必需): 表名
 
-### 5. list_databases
-列出数据库服务器中的所有数据库。
+**使用示例：**
+```json
+{
+  "name": "get_table_info",
+  "arguments": {
+    "table": "users"
+  }
+}
+```
+
+### 5. clear_cache
+清除数据库 Schema 缓存，当数据库结构发生变化时使用此工具刷新缓存。
+
+**参数：**
+- `table`: 可选，指定要清除缓存的表名，不传则清除所有缓存
+
+**使用示例：**
+```json
+{
+  "name": "clear_cache",
+  "arguments": {}
+}
+```
+
+### 6. get_enum_values
+获取指定列的所有唯一值，用于了解 status、type 等枚举类型字段的可能取值。
+
+**参数：**
+- `table` (必需): 表名
+- `column` (必需): 列名
+- `where`: 可选的 WHERE 条件，用于过滤数据
+- `limit`: 结果限制条数，默认 1000
+
+**使用示例：**
+```json
+{
+  "name": "get_enum_values",
+  "arguments": {
+    "table": "orders",
+    "column": "status"
+  }
+}
+```
+
+### 7. get_sample_data
+获取表的示例数据，已自动脱敏敏感信息（如密码、手机号、邮箱等），用于了解数据格式和结构。
+
+**参数：**
+- `table` (必需): 表名
+- `where`: 可选的 WHERE 条件，用于过滤数据
+- `order`: 可选的 ORDER BY 子句，例如 'id DESC'
+- `limit`: 结果限制条数，默认 10
+
+**使用示例：**
+```json
+{
+  "name": "get_sample_data",
+  "arguments": {
+    "table": "users",
+    "limit": 5
+  }
+}
+```
+
+> **注意：** 所有工具都使用 MCP 连接配置中指定的数据库，无需在工具调用时指定数据库名称。
 
 ## 快速开始
 
