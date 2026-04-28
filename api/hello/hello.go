@@ -7,7 +7,7 @@ package hello
 import (
 	"context"
 
-	"gf-mcp-db/api/hello/v1"
+	"github.com/tiger1103/gf-mcp-db/api/hello/v1"
 )
 
 type IHelloV1 interface {

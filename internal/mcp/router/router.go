@@ -9,10 +9,10 @@ package router
 
 import (
 	"context"
-	"gf-mcp-db/internal/consts"
-	"gf-mcp-db/internal/mcp/register"
-	"gf-mcp-db/internal/mcp/tools"
-	"gf-mcp-db/library/liberr"
+	"github.com/tiger1103/gf-mcp-db/internal/consts"
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/tools"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
