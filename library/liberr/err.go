@@ -9,7 +9,8 @@ package liberr
 
 import (
 	"context"
-	"gf-mcp/internal/consts"
+	"gf-mcp-db/internal/consts"
+
 	"github.com/gogf/gf/v2/errors/gcode"
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/gogf/gf/v2/frame/g"

@@ -1,4 +1,4 @@
-module gf-mcp
+module gf-mcp-db
 
 go 1.23.0
 

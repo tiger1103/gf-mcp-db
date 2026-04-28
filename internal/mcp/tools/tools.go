@@ -8,7 +8,8 @@
 package tools
 
 import (
-	"gf-mcp/internal/consts"
+	"gf-mcp-db/internal/consts"
+
 	"github.com/gogf/gf/v2/errors/gerror"
 	"github.com/mark3labs/mcp-go/mcp"
 )

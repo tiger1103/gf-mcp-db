@@ -11,9 +11,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"gf-mcp/internal/consts"
-	"gf-mcp/internal/mcp/register"
-	"gf-mcp/library/liberr"
+	"gf-mcp-db/internal/consts"
+	"gf-mcp-db/internal/mcp/register"
+	"gf-mcp-db/library/liberr"
 	"regexp"
 	"strings"
 

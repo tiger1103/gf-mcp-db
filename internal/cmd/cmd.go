@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
-	"gf-mcp/internal/consts"
-	"gf-mcp/internal/mcp/register"
-	"gf-mcp/internal/mcp/tools"
-	"gf-mcp/library/liberr"
+	"gf-mcp-db/internal/consts"
+	"gf-mcp-db/internal/mcp/register"
+	"gf-mcp-db/internal/mcp/tools"
+	"gf-mcp-db/library/liberr"
 	"os"
 	"strings"
 
