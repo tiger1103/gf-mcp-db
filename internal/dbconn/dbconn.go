@@ -123,6 +123,19 @@ var initMu sync.Mutex
 // lastInitNode 记录最近一次成功初始化的连接配置，相同配置跳过重复 SetConfig+Ping（HTTP 模式按请求调用 Init）
 var lastInitNode *gdb.ConfigNode
 
+// restoreLastInit 初始化失败时恢复上一个成功配置，避免全局配置停留在失败配置上；
+// 无可恢复配置时置空 lastInitNode，强制下次全量重初始化。
+func restoreLastInit() {
+	if lastInitNode == nil {
+		return
+	}
+	if err := gdb.SetConfig(gdb.Config{
+		gdb.DefaultGroupName: gdb.ConfigGroup{*lastInitNode},
+	}); err != nil {
+		lastInitNode = nil
+	}
+}
+
 // Init 构建配置、写入全局默认连接组并 Ping 验证连通性。
 // 相同配置的连续调用会跳过重复的 SetConfig 与 Ping（HTTP 模式按请求调用，避免连接池反复重建）。
 func Init(ctx context.Context, cfg *Config) error {
@@ -145,6 +158,7 @@ func Init(ctx context.Context, cfg *Config) error {
 	}
 	db, err := gdb.Instance(gdb.DefaultGroupName)
 	if err != nil {
+		restoreLastInit()
 		return err
 	}
 	pingErr := make(chan error, 1)
@@ -154,9 +168,11 @@ func Init(ctx context.Context, cfg *Config) error {
 	select {
 	case err = <-pingErr:
 		if err != nil {
+			restoreLastInit()
 			return err
 		}
 	case <-ctx.Done():
+		restoreLastInit()
 		return ctx.Err()
 	}
 	// 仅在成功后记录，失败的下次调用仍会重试

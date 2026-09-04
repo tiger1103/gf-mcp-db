@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 
 	"github.com/tiger1103/gf-mcp-db/internal/consts"
@@ -26,6 +27,7 @@ var errNoDatabase = errors.New("请先连接数据库，在建立 MCP 连接时�
 func getDB(ctx context.Context) gdb.DB {
 	db, err := gdb.Instance(gdb.DefaultGroupName)
 	if err != nil || db == nil {
+		g.Log().Error(ctx, "获取数据库连接失败:", err)
 		liberr.ErrIsNilCode(ctx, errNoDatabase, consts.CodeInfo)
 	}
 	return db

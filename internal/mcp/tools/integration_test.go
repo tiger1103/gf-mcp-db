@@ -24,6 +24,9 @@ import (
 	"github.com/tiger1103/gf-mcp-db/internal/mcp/tools"
 )
 
+// 注意：以下测试会变更进程级全局数据库配置（dbconn.Init + gdb.SetConfig），
+// 相互依赖且绝不能并行运行（禁止 t.Parallel）；closeDefaultDB 会留下已关闭的
+// 缓存实例，后续如新增用例必须先调用 dbconn.Init。
 func newToolRequest(args map[string]any) mcp.CallToolRequest {
 	return mcp.CallToolRequest{Params: mcp.CallToolParams{Name: "test", Arguments: args}}
 }
@@ -108,15 +111,21 @@ func exerciseTools(t *testing.T) {
 			t.Fatalf("get_table_info 缺少 %q: %s", want, info)
 		}
 	}
+	if strings.Contains(info, "indexes_error") {
+		t.Fatalf("get_table_info(users) 出现 indexes_error: %s", info)
+	}
 	infoOrders := callTool(t, (&tools.GetTableInfo{}).Handler(reg), map[string]any{"table": "gf_mcp_t_orders"})
-	if !strings.Contains(infoOrders, "foreign_keys") {
-		t.Fatalf("get_table_info(orders) 缺少外键信息: %s", infoOrders)
+	if !strings.Contains(infoOrders, "constraint_name") || strings.Contains(infoOrders, "foreign_keys_error") {
+		t.Fatalf("get_table_info(orders) 外键信息异常: %s", infoOrders)
 	}
 
 	// 3. get_schema
 	schema := callTool(t, (&tools.GetSchema{}).Handler(reg), map[string]any{"pattern": "gf_mcp_t_o%"})
 	if !strings.Contains(schema, "gf_mcp_t_orders") || !strings.Contains(schema, "column_name") {
 		t.Fatalf("get_schema 输出异常: %s", schema)
+	}
+	if strings.Contains(schema, "gf_mcp_t_users") {
+		t.Fatalf("get_schema 模式过滤失效: %s", schema)
 	}
 
 	// 4. get_enum_values
@@ -131,6 +140,9 @@ func exerciseTools(t *testing.T) {
 		map[string]any{"table": "gf_mcp_t_users", "limit": 2})
 	if !strings.Contains(sample, "已脱敏") || !strings.Contains(sample, "***@example.com") {
 		t.Fatalf("get_sample_data 脱敏异常: %s", sample)
+	}
+	if strings.Contains(sample, "alice@example.com") {
+		t.Fatalf("get_sample_data 泄露未脱敏数据: %s", sample)
 	}
 
 	// 6. execute_query（查询 + 命令）
