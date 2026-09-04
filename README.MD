@@ -291,7 +291,7 @@ Windows 系统：
 | --user | 是* | 数据库用户名（SQLite 均不需要） | - |
 | --password | 是* | 数据库密码（SQLite 均不需要） | - |
 | --database | 是 | 数据库名称或 SQLite 文件路径 | - |
-| --charset | 否 | 字符集 | utf8mb4 |
+| --charset | 否 | 字符集（MySQL 默认 utf8mb4，DM 默认 UTF-8，其余库由驱动决定） | 按库默认 |
 | --debug | 否 | 是否开启调试模式 | false |
 | --extra | 否 | 透传驱动的额外参数，格式 k1=v1&k2=v2（如 MySQL 的 loc=Local、SQLite 的 busy_timeout(5000)） | - |
 
@@ -396,8 +396,9 @@ Windows 系统：
 - 达梦 DM8：兼容 Oracle 目录视图，分页支持 LIMIT 语法；元数据以登录用户（即目标 schema）的 `OWNER = USER` 过滤。
 - SQLite：内嵌引擎（纯 Go），PRAGMA 不支持参数绑定；方言层暂不支持 `schema.table` 形式的表名；无行数估算。
 - MySQL 5.7 兼容：表状态/外键查询使用 information_schema，不依赖 5.7 不支持的预编译 SHOW 语句（SHOW INDEX 在 5.7 可正常预编译）。
-- HTTP SSE 模式下多个会话共享同一个 default 连接组：后初始化的会话配置会覆盖先前的（进程级单连接组设计，与旧版一致）。
+- HTTP SSE 模式下多个会话共享同一个 default 连接组：后初始化的会话配置会覆盖先前的（进程级单连接组设计，与旧版一致）；某会话连接初始化失败时，服务不会中断，该请求之后的工具调用会继续使用上一个成功配置。
 - `clear_cache`/元数据缓存为进程内缓存，多实例部署互不可见。
+- **SQL Server / Oracle / DM 路径未经真实实例回归验证**（编译、单元测试与基于官方文档的 SQL 审查覆盖；SQLite/MySQL/PostgreSQL 已通过真实实例集成测试），首次接入真实实例建议先逐个工具冒烟。
 
 ## 项目结构
 
@@ -408,9 +409,11 @@ gf-mcp-db/
 │   └── config.yaml             # GoFrame CLI 配置（打包配置）
 ├── internal/
 │   ├── cmd/                    # 命令行处理（支持 stdio 和 HTTP 模式）
+│   ├── dbconn/                 # 连接配置归一/校验/初始化（stdio 与 HTTP 共用）
 │   ├── mcp/
 │   │   ├── router/             # 路由注册（HTTP 模式）
 │   │   ├── register/           # MCP 注册器
+│   │   ├── dialect/            # 数据库方言层（6 库实现，元数据查询与分页差异）
 │   │   ├── tools/              # MCP 工具实现
 │   │   └── model/              # 数据模型
 │   └── consts/                 # 常量定义
