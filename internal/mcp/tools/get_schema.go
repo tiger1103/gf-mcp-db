@@ -38,7 +38,7 @@ func (t *GetSchema) ReturnTool() mcp.Tool {
   "pattern": "user%"
 }`),
 		mcp.WithString("pattern",
-			mcp.Description("表名匹配模式，支持通配符 %，例如 'user%' 匹配所有以 user 开头的表名")),
+			mcp.Description("表名匹配模式，支持通配符 %（任意串）与 _（单字符），不区分大小写，例如 'user%' 匹配所有以 user 开头的表名")),
 	)
 }
 
@@ -63,8 +63,12 @@ func (t *GetSchema) Handler(r *Reg) func(ctx context.Context, request mcp.CallTo
 
 				fields, fieldsErr := db.TableFields(ctx, tableName)
 				if fieldsErr == nil {
-					// 主键集合获取失败时 pks 为 nil，主键标记统一为 false，不阻断整体输出
-					pks, _ := d.PrimaryKeys(ctx, db, tableName)
+					pks, pkErr := d.PrimaryKeys(ctx, db, tableName)
+					if pkErr != nil {
+						// 主键信息不可用时显式标注，避免 primary_key:false 被误读为「无主键」
+						g.Log().Warning(ctx, "获取表主键失败:", tableName, pkErr)
+						entry["primary_keys_error"] = pkErr.Error()
+					}
 					entry["columns"] = dialect.ColumnsFromTableFields(fields, pks)
 				} else {
 					entry["columns_error"] = fieldsErr.Error()
@@ -72,6 +76,8 @@ func (t *GetSchema) Handler(r *Reg) func(ctx context.Context, request mcp.CallTo
 
 				if indexes, indexesErr := d.Indexes(ctx, db, tableName); indexesErr == nil {
 					entry["indexes"] = indexes
+				} else {
+					entry["indexes_error"] = indexesErr.Error()
 				}
 
 				schemaInfo = append(schemaInfo, entry)

@@ -38,7 +38,7 @@ func (t *ListTables) ReturnTool() mcp.Tool {
   "pattern": "user%"
 }`),
 		mcp.WithString("pattern",
-			mcp.Description("表名匹配模式，支持通配符 %，例如 'user%' 匹配所有以 user 开头的表名")),
+			mcp.Description("表名匹配模式，支持通配符 %（任意串）与 _（单字符），不区分大小写，例如 'user%' 匹配所有以 user 开头的表名")),
 	)
 }
 
