@@ -26,7 +26,7 @@ type mssqlDialect struct {
 	BaseDialect
 }
 
-// Paginate TOP 语法（兼容 SELECT DISTINCT；先去除尾部分号/空白再改写，与基类 LIMIT 分支语义一致）
+// Paginate TOP 语法（兼容 SELECT DISTINCT；先去除尾部分号/空白再改写，与基类 LIMIT 分支语义一致）；仅适配工具层构造的简单查询（SELECT [DISTINCT] col FROM t [WHERE][ORDER BY]），含 UNION/INTERSECT/EXCEPT/OFFSET 或已有 TOP 的语句不做改写保证
 func (d *mssqlDialect) Paginate(selectSQL string, limit int) string {
 	if limit <= 0 {
 		limit = 100
@@ -50,8 +50,8 @@ func (d *mssqlDialect) Indexes(ctx context.Context, db gdb.DB, table string) (gd
 		JOIN sys.tables t ON t.object_id = i.object_id
 		JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
 		JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
-		WHERE t.name = ? AND i.name IS NOT NULL
-		ORDER BY i.name, ic.key_ordinal`, table)
+		WHERE t.name = ? AND t.schema_id = SCHEMA_ID() AND i.name IS NOT NULL
+		ORDER BY i.name, ic.is_included_column, ic.key_ordinal, ic.index_column_id`, table)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (d *mssqlDialect) ForeignKeys(ctx context.Context, db gdb.DB, table string)
 		JOIN sys.columns cp ON cp.object_id = fkc.parent_object_id AND cp.column_id = fkc.parent_column_id
 		JOIN sys.tables tr ON tr.object_id = fkc.referenced_object_id
 		JOIN sys.columns cr ON cr.object_id = fkc.referenced_object_id AND cr.column_id = fkc.referenced_column_id
-		WHERE tp.name = ?
+		WHERE tp.name = ? AND tp.schema_id = SCHEMA_ID()
 		ORDER BY fk.name, fkc.constraint_column_id`, table)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func (d *mssqlDialect) TableStat(ctx context.Context, db gdb.DB, table string) (
 		SELECT SUM(p.rows) AS rows_estimate
 		FROM sys.partitions p
 		JOIN sys.tables t ON t.object_id = p.object_id
-		WHERE t.name = ? AND p.index_id IN (0,1)`, table)
+		WHERE t.name = ? AND t.schema_id = SCHEMA_ID() AND p.index_id IN (0,1)`, table)
 	if err != nil {
 		return nil, err
 	}

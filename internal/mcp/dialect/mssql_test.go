@@ -27,6 +27,8 @@ func TestMssqlDialectBasics(t *testing.T) {
 		{"SELECT a FROM t ORDER BY b", 1, "SELECT TOP 1 a FROM t ORDER BY b"},
 		{"SELECT * FROM t", 0, "SELECT TOP 100 * FROM t"},
 		{"SELECT 1;", 0, "SELECT TOP 100 1"},
+		{"WITH cte AS (SELECT 1 AS x) SELECT x FROM cte", 5, "WITH cte AS (SELECT 1 AS x) SELECT x FROM cte"},
+		{"SELECT DISTINCT a FROM t;", 5, "SELECT DISTINCT TOP 5 a FROM t"},
 	}
 	for _, c := range cases {
 		if got := d.Paginate(c.in, c.limit); got != c.want {
