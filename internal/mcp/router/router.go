@@ -54,7 +54,7 @@ func initDBForRequest(ctx context.Context, r *ghttp.Request) {
 		glog.Error(ctx, "初始化数据库连接失败:", err)
 		return
 	}
-	glog.Info(ctx, "数据库连接初始化成功，类型："+config.DBType+", 数据库："+config.Database)
+	glog.Info(ctx, "数据库连接初始化成功，类型："+config.DBType+", 数据库："+config.Database+", SessionID:"+r.GetSessionId())
 }
 
 // parseDatabaseConfigFromQuery 从 URL 查询参数解析数据库配置

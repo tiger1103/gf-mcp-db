@@ -100,6 +100,10 @@ func BuildConfigNode(cfg *Config) (*gdb.ConfigNode, error) {
 			node.Charset = "UTF-8"
 		}
 	}
+	if dbType == "mysql" && !strings.Contains(cfg.Extra, "loc=") {
+		// 与旧版 DSN 行为一致：默认使用本地时区解析时间（可用 extra "loc=..." 覆盖）
+		node.Timezone = "Local"
+	}
 	if dbType == "sqlite" {
 		if node.Name == "" {
 			return nil, liberr.NewCode(consts.CodeInfo, "SQLite 需要提供 database 参数（文件路径）")
@@ -116,7 +120,11 @@ func BuildConfigNode(cfg *Config) (*gdb.ConfigNode, error) {
 // initMu 串行化 Init 对全局连接配置的写入
 var initMu sync.Mutex
 
-// Init 构建配置、写入全局默认连接组并 Ping 验证连通性
+// lastInitNode 记录最近一次成功初始化的连接配置，相同配置跳过重复 SetConfig+Ping（HTTP 模式按请求调用 Init）
+var lastInitNode *gdb.ConfigNode
+
+// Init 构建配置、写入全局默认连接组并 Ping 验证连通性。
+// 相同配置的连续调用会跳过重复的 SetConfig 与 Ping（HTTP 模式按请求调用，避免连接池反复重建）。
 func Init(ctx context.Context, cfg *Config) error {
 	node, err := BuildConfigNode(cfg)
 	if err != nil {
@@ -125,6 +133,10 @@ func Init(ctx context.Context, cfg *Config) error {
 	// 串行化全局连接配置写入，避免并发 Init 相互覆盖（HTTP 模式按请求初始化）
 	initMu.Lock()
 	defer initMu.Unlock()
+
+	if lastInitNode != nil && *node == *lastInitNode {
+		return nil
+	}
 
 	if err = gdb.SetConfig(gdb.Config{
 		gdb.DefaultGroupName: gdb.ConfigGroup{*node},
@@ -141,8 +153,13 @@ func Init(ctx context.Context, cfg *Config) error {
 	}()
 	select {
 	case err = <-pingErr:
-		return err
+		if err != nil {
+			return err
+		}
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	// 仅在成功后记录，失败的下次调用仍会重试
+	lastInitNode = node
+	return nil
 }
