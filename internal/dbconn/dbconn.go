@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/gogf/gf/v2/database/gdb"
 
@@ -24,7 +25,7 @@ type Config struct {
 	Password string
 	Database string // 数据库名；sqlite 时为文件路径
 	Charset  string
-	Extra    string // 透传驱动的额外参数，格式 k1=v1&k2=v2
+	Extra    string // 透传驱动的额外参数，格式 k1=v1&k2=v2（注意：gf 会先用 Extra 覆盖 ConfigNode 同名字段，勿用 charset/type 等保留键）
 	Debug    bool
 }
 
@@ -77,7 +78,8 @@ func BuildConfigNode(cfg *Config) (*gdb.ConfigNode, error) {
 		}
 	}
 	node := &gdb.ConfigNode{
-		Type:    dbType,
+		Type: dbType,
+		// 密码与文件路径可能合法包含空格，故仅 TrimSpace Host/Port
 		Host:    strings.TrimSpace(cfg.Host),
 		Port:    strings.TrimSpace(cfg.Port),
 		User:    cfg.Username,
@@ -111,12 +113,19 @@ func BuildConfigNode(cfg *Config) (*gdb.ConfigNode, error) {
 	return node, nil
 }
 
+// initMu 串行化 Init 对全局连接配置的写入
+var initMu sync.Mutex
+
 // Init 构建配置、写入全局默认连接组并 Ping 验证连通性
 func Init(ctx context.Context, cfg *Config) error {
 	node, err := BuildConfigNode(cfg)
 	if err != nil {
 		return err
 	}
+	// 串行化全局连接配置写入，避免并发 Init 相互覆盖（HTTP 模式按请求初始化）
+	initMu.Lock()
+	defer initMu.Unlock()
+
 	if err = gdb.SetConfig(gdb.Config{
 		gdb.DefaultGroupName: gdb.ConfigGroup{*node},
 	}); err != nil {
@@ -126,8 +135,14 @@ func Init(ctx context.Context, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	if err = db.PingMaster(); err != nil {
+	pingErr := make(chan error, 1)
+	go func() {
+		pingErr <- db.PingMaster()
+	}()
+	select {
+	case err = <-pingErr:
 		return err
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return nil
 }

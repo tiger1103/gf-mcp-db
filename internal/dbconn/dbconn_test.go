@@ -5,6 +5,7 @@
 package dbconn_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/tiger1103/gf-mcp-db/internal/dbconn"
@@ -152,6 +153,72 @@ func TestBuildConfigNode(t *testing.T) {
 		}
 		if node.Extra != "loc=Local" {
 			t.Fatalf("extra 应透传: %+v", node)
+		}
+	})
+}
+
+func TestBuildConfigNodeExtras(t *testing.T) {
+	t.Run("显式端口保留", func(t *testing.T) {
+		node, err := dbconn.BuildConfigNode(&dbconn.Config{DBType: "mysql", Host: "h", Port: "3307", Username: "u", Database: "d"})
+		if err != nil {
+			t.Fatalf("意外错误: %v", err)
+		}
+		if node.Port != "3307" {
+			t.Fatalf("显式端口应保留: %q", node.Port)
+		}
+	})
+
+	t.Run("显式字符集保留", func(t *testing.T) {
+		node, err := dbconn.BuildConfigNode(&dbconn.Config{DBType: "dm", Host: "h", Username: "u", Database: "d", Charset: "GBK"})
+		if err != nil {
+			t.Fatalf("意外错误: %v", err)
+		}
+		if node.Charset != "GBK" {
+			t.Fatalf("显式字符集应保留: %q", node.Charset)
+		}
+	})
+
+	t.Run("多段 extra 合法", func(t *testing.T) {
+		node, err := dbconn.BuildConfigNode(&dbconn.Config{DBType: "mysql", Host: "h", Username: "u", Database: "d", Extra: "a=1&b=2"})
+		if err != nil {
+			t.Fatalf("意外错误: %v", err)
+		}
+		if node.Extra != "a=1&b=2" {
+			t.Fatalf("extra 应透传: %q", node.Extra)
+		}
+	})
+
+	t.Run("多段 extra 含非法段报错", func(t *testing.T) {
+		_, err := dbconn.BuildConfigNode(&dbconn.Config{DBType: "mysql", Host: "h", Username: "u", Database: "d", Extra: "a=1&bad"})
+		if err == nil {
+			t.Fatal("期望报错")
+		}
+	})
+
+	t.Run("debug 透传", func(t *testing.T) {
+		node, err := dbconn.BuildConfigNode(&dbconn.Config{DBType: "mysql", Host: "h", Username: "u", Database: "d", Debug: true})
+		if err != nil {
+			t.Fatalf("意外错误: %v", err)
+		}
+		if !node.Debug {
+			t.Fatal("debug 应透传")
+		}
+	})
+
+	t.Run("host 与 port 去空白", func(t *testing.T) {
+		node, err := dbconn.BuildConfigNode(&dbconn.Config{DBType: "mysql", Host: " h ", Port: " 3306 ", Username: "u", Database: "d"})
+		if err != nil {
+			t.Fatalf("意外错误: %v", err)
+		}
+		if node.Host != "h" || node.Port != "3306" {
+			t.Fatalf("host/port 应去空白: %q/%q", node.Host, node.Port)
+		}
+	})
+
+	t.Run("Init 非法配置直接返回错误", func(t *testing.T) {
+		err := dbconn.Init(context.Background(), &dbconn.Config{DBType: "no-such"})
+		if err == nil {
+			t.Fatal("期望报错")
 		}
 	})
 }
