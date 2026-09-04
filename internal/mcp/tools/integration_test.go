@@ -18,7 +18,6 @@ import (
 	_ "github.com/gogf/gf/contrib/drivers/pgsql/v2"
 	_ "github.com/gogf/gf/contrib/drivers/sqlite/v2"
 	"github.com/gogf/gf/v2/database/gdb"
-	"github.com/gogf/gf/v2/frame/g"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/tiger1103/gf-mcp-db/internal/dbconn"
@@ -49,9 +48,9 @@ func callTool(t *testing.T, handler func(ctx context.Context, request mcp.CallTo
 
 func mustDB(t *testing.T) gdb.DB {
 	t.Helper()
-	db := g.DB("default")
-	if db == nil {
-		t.Fatal("数据库未初始化")
+	db, err := gdb.Instance(gdb.DefaultGroupName)
+	if err != nil || db == nil {
+		t.Fatalf("数据库未初始化: %v", err)
 	}
 	return db
 }
