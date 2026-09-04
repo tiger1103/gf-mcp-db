@@ -13,6 +13,9 @@ func NewDmDialect() IDialect {
 	return &dmDialect{oracleLikeDialect{BaseDialect: NewBaseDialect("dm", `"`, `"`)}}
 }
 
+// dmDialect 达梦方言。
+// 作用域假设：登录用户即目标模式（DM DSN 的 schema 通常与用户一致），
+// 目录查询统一以 OWNER = USER 过滤；如需以 SYSDBA 等跨模式检查，结果为空。
 type dmDialect struct {
 	oracleLikeDialect
 }

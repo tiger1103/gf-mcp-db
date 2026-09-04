@@ -26,7 +26,7 @@ type oracleDialect struct {
 	oracleLikeDialect
 }
 
-// Paginate FETCH FIRST（Oracle 12c+；先去尾分号/空白）
+// Paginate FETCH FIRST（Oracle 12c+；先去尾分号/空白；仅适配工具层构造的简单查询，含 UNION/INTERSECT/EXCEPT 的语句不做改写保证）
 func (d *oracleDialect) Paginate(selectSQL string, limit int) string {
 	if limit <= 0 {
 		limit = 100
@@ -41,6 +41,11 @@ type oracleLikeDialect struct {
 	BaseDialect
 }
 
+// normTable 表名归一为大写（Oracle/DM 字典约定），并去首尾空白
+func normTable(table string) string {
+	return strings.ToUpper(strings.TrimSpace(table))
+}
+
 // PrimaryKeys 主键列集合（ALL_CONSTRAINTS 约束类型 P）
 func (d *oracleLikeDialect) PrimaryKeys(ctx context.Context, db gdb.DB, table string) (map[string]bool, error) {
 	res, err := db.Query(ctx, `
@@ -48,7 +53,7 @@ func (d *oracleLikeDialect) PrimaryKeys(ctx context.Context, db gdb.DB, table st
 		FROM ALL_CONSTRAINTS ac
 		JOIN ALL_CONS_COLUMNS acc
 		  ON acc.OWNER = ac.OWNER AND acc.CONSTRAINT_NAME = ac.CONSTRAINT_NAME
-		WHERE ac.CONSTRAINT_TYPE = 'P' AND ac.TABLE_NAME = ? AND ac.OWNER = USER`, table)
+		WHERE ac.CONSTRAINT_TYPE = 'P' AND ac.TABLE_NAME = ? AND ac.OWNER = USER`, normTable(table))
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +72,7 @@ func (d *oracleLikeDialect) Indexes(ctx context.Context, db gdb.DB, table string
 		JOIN ALL_IND_COLUMNS ic
 		  ON ic.INDEX_OWNER = ix.OWNER AND ic.INDEX_NAME = ix.INDEX_NAME
 		WHERE ix.TABLE_NAME = ? AND ix.OWNER = USER
-		ORDER BY ic.INDEX_NAME, ic.COLUMN_POSITION`, table)
+		ORDER BY ic.INDEX_NAME, ic.COLUMN_POSITION`, normTable(table))
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +100,7 @@ func (d *oracleLikeDialect) ForeignKeys(ctx context.Context, db gdb.DB, table st
 		JOIN ALL_CONS_COLUMNS rcc
 		  ON rcc.OWNER = rc.OWNER AND rcc.CONSTRAINT_NAME = rc.CONSTRAINT_NAME AND rcc.POSITION = acc.POSITION
 		WHERE ac.CONSTRAINT_TYPE = 'R' AND ac.TABLE_NAME = ? AND ac.OWNER = USER
-		ORDER BY ac.CONSTRAINT_NAME, acc.POSITION`, table)
+		ORDER BY ac.CONSTRAINT_NAME, acc.POSITION`, normTable(table))
 	if err != nil {
 		return nil, err
 	}
@@ -111,14 +116,14 @@ func (d *oracleLikeDialect) ForeignKeys(ctx context.Context, db gdb.DB, table st
 	return out, nil
 }
 
-// TableStat 行数估算与表注释（ALL_TABLES + ALL_TAB_COMMENTS）；NUM_ROWS < 0 省略行数
+// TableStat 行数估算与表注释（ALL_TABLES + ALL_TAB_COMMENTS）；NUM_ROWS 为 NULL（未 ANALYZE）或 < 0 时省略行数
 func (d *oracleLikeDialect) TableStat(ctx context.Context, db gdb.DB, table string) (gdb.Record, error) {
 	res, err := db.Query(ctx, `
 		SELECT t.NUM_ROWS AS ROWS_ESTIMATE, tc.COMMENTS AS TABLE_COMMENT
 		FROM ALL_TABLES t
 		LEFT JOIN ALL_TAB_COMMENTS tc
 		  ON tc.OWNER = t.OWNER AND tc.TABLE_NAME = t.TABLE_NAME
-		WHERE t.TABLE_NAME = ? AND t.OWNER = USER`, table)
+		WHERE t.TABLE_NAME = ? AND t.OWNER = USER`, normTable(table))
 	if err != nil {
 		return nil, err
 	}
@@ -127,8 +132,11 @@ func (d *oracleLikeDialect) TableStat(ctx context.Context, db gdb.DB, table stri
 	}
 	r := res[0]
 	stat := gdb.Record{"table_comment": r["TABLE_COMMENT"]}
-	if rows := r["ROWS_ESTIMATE"].Int(); rows >= 0 {
-		stat["rows_estimate"] = gvar.New(rows)
+	// NUM_ROWS 为 NULL（未收集统计信息）或 < 0 时省略行数键，避免误读为空表
+	if rv := r["ROWS_ESTIMATE"]; !rv.IsNil() {
+		if rows := rv.Int(); rows >= 0 {
+			stat["rows_estimate"] = gvar.New(rows)
+		}
 	}
 	return stat, nil
 }
