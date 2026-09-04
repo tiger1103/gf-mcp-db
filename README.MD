@@ -395,7 +395,7 @@ Windows 系统：
 - SQL Server：分页使用 `SELECT TOP n`（仅适配工具内部构造的简单查询）；元数据查询限定在连接账号的默认 schema 内；gf 驱动要求自动时间戳字段使用 datetime2/datetimeoffset。
 - 达梦 DM8：兼容 Oracle 目录视图，分页支持 LIMIT 语法；元数据以登录用户（即目标 schema）的 `OWNER = USER` 过滤。
 - SQLite：内嵌引擎（纯 Go），PRAGMA 不支持参数绑定；方言层暂不支持 `schema.table` 形式的表名；无行数估算。
-- MySQL 5.7 兼容：元数据查询使用 information_schema（不依赖 5.7 不支持的预编译 SHOW 语句）。
+- MySQL 5.7 兼容：表状态/外键查询使用 information_schema，不依赖 5.7 不支持的预编译 SHOW 语句（SHOW INDEX 在 5.7 可正常预编译）。
 - HTTP SSE 模式下多个会话共享同一个 default 连接组：后初始化的会话配置会覆盖先前的（进程级单连接组设计，与旧版一致）。
 - `clear_cache`/元数据缓存为进程内缓存，多实例部署互不可见。
 
