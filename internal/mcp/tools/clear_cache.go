@@ -32,7 +32,7 @@ func (t *ClearCache) ReturnTool() mcp.Tool {
 清除所有缓存:
 {}
 
-清除指定表的缓存:
+清除指定表的缓存（当前实现会清除全部元数据缓存，表名仅用于结果提示）:
 {
   "table": "users"
 }`),
@@ -50,7 +50,7 @@ func (t *ClearCache) Handler(r *Reg) func(ctx context.Context, request mcp.CallT
 
 			db := getDB(ctx)
 
-			// 清除 gdb 内部元数据缓存（Tables/TableFields），全库一致，不再执行 MySQL 专有的 FLUSH TABLES
+			// 清除 gdb 内部元数据缓存（TableFields 等），全库一致
 			cache := db.GetCore().GetInnerMemCache()
 			if cacheErr := cache.Clear(ctx); cacheErr != nil {
 				liberr.ErrIsNil(ctx, cacheErr)

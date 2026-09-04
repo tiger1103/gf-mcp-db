@@ -44,13 +44,13 @@ func (t *ExecuteQuery) ReturnTool() mcp.Tool {
 
 插入数据:
 {
-  "sql": "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')
+  "sql": "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')"
 }`),
 		mcp.WithString("sql",
 			mcp.Required(),
 			mcp.Description("SQL 查询语句")),
 		mcp.WithNumber("limit",
-			mcp.Description("结果限制条数，默认 100，仅对 SELECT 查询有效")),
+			mcp.Description("结果限制条数，默认 100，仅对查询类语句有效")),
 	)
 }
 
@@ -69,11 +69,16 @@ func (t *ExecuteQuery) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 				queryResult, queryErr := db.Query(ctx, sqlStr)
 				liberr.ErrIsNil(ctx, queryErr)
 
+				truncated := false
 				if len(queryResult) > limit {
 					queryResult = queryResult[:limit]
+					truncated = true
 				}
 
 				result = fmt.Sprintf("查询成功，返回 %d 条记录，结果为：%s", len(queryResult), gconv.String(queryResult))
+				if truncated {
+					result += fmt.Sprintf("（结果超过 limit=%d，已截断）", limit)
+				}
 			} else {
 				execResult, execErr := db.Exec(ctx, sqlStr)
 				liberr.ErrIsNil(ctx, execErr)
