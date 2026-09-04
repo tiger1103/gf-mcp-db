@@ -1,25 +1,21 @@
 /*
  * @desc:获取数据库结构信息工具
- * @company:云南奇讯科技有限公司
- * @Author: yixiaohu<yxh669@qq.com>
- * @Date:   2025/4/23 16:13
  */
 
 package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/tiger1103/gf-mcp-db/internal/consts"
-	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
-	"github.com/tiger1103/gf-mcp-db/library/liberr"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/dialect"
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 )
 
 // GetSchema 获取数据库结构信息工具结构
@@ -51,81 +47,37 @@ func (t *GetSchema) Handler(r *Reg) func(ctx context.Context, request mcp.CallTo
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取可选参数
-			pattern, _ := request.GetArguments()["pattern"].(string)
+			db := getDB(ctx)
+			d := currentDialect(ctx, db)
 
-			// 获取数据库连接
-			var db gdb.DB
-			g.TryCatch(ctx, func(ctx context.Context) {
-				db = g.DB("default")
-			}, func(ctx context.Context, exception error) {
-				g.Log().Error(ctx, exception.Error())
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			})
-
-			if db == nil {
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			}
-
-			// 获取所有表名
-			var sql string
-			if pattern == "" {
-				sql = "SHOW TABLES"
-			} else {
-				sql = fmt.Sprintf("SHOW TABLES LIKE '%s'", pattern)
-			}
-
-			tablesResult, tablesErr := db.Query(ctx, sql)
+			tables, tablesErr := db.Tables(ctx)
 			liberr.ErrIsNil(ctx, tablesErr)
 
-			// 提取表名列表
-			var tableNames []string
-			for _, row := range tablesResult {
-				for _, value := range row {
-					tableNames = append(tableNames, gconv.String(value))
+			pattern := argString(request.GetArguments(), "pattern")
+			schemaInfo := make([]map[string]any, 0, len(tables))
+			for _, tableName := range tables {
+				if !dialect.MatchPattern(tableName, pattern) {
+					continue
 				}
+				entry := map[string]any{"table_name": tableName}
+
+				fields, fieldsErr := db.TableFields(ctx, tableName)
+				if fieldsErr == nil {
+					// 主键集合获取失败时 pks 为 nil，主键标记统一为 false，不阻断整体输出
+					pks, _ := d.PrimaryKeys(ctx, db, tableName)
+					entry["columns"] = dialect.ColumnsFromTableFields(fields, pks)
+				} else {
+					entry["columns_error"] = fieldsErr.Error()
+				}
+
+				if indexes, indexesErr := d.Indexes(ctx, db, tableName); indexesErr == nil {
+					entry["indexes"] = indexes
+				}
+
+				schemaInfo = append(schemaInfo, entry)
 			}
 
-			// 获取每个表的结构信息
-			var schemaInfo []map[string]interface{}
-			for _, tableName := range tableNames {
-				tableInfo := make(map[string]interface{})
-				tableInfo["table_name"] = tableName
-
-				// 获取列信息
-				columnsSql := fmt.Sprintf("SHOW COLUMNS FROM `%s`", tableName)
-				columnsResult, columnsErr := db.Query(ctx, columnsSql)
-				if columnsErr == nil {
-					var columns []map[string]string
-					for _, row := range columnsResult {
-						colInfo := make(map[string]string)
-						for key, value := range row {
-							colInfo[key] = gconv.String(value)
-						}
-						columns = append(columns, colInfo)
-					}
-					tableInfo["columns"] = columns
-				}
-
-				// 获取索引信息
-				indexSql := fmt.Sprintf("SHOW INDEX FROM `%s`", tableName)
-				indexResult, indexErr := db.Query(ctx, indexSql)
-				if indexErr == nil {
-					var indexes []map[string]string
-					for _, row := range indexResult {
-						idxInfo := make(map[string]string)
-						for key, value := range row {
-							idxInfo[key] = gconv.String(value)
-						}
-						indexes = append(indexes, idxInfo)
-					}
-					tableInfo["indexes"] = indexes
-				}
-
-				schemaInfo = append(schemaInfo, tableInfo)
-			}
-
-			result = fmt.Sprintf("数据库结构信息：共 %d 个表，详细信息：%s", len(tableNames), gconv.String(schemaInfo))
+			result = fmt.Sprintf("数据库结构信息：共 %d 个表，详细信息：%s", len(schemaInfo), gconv.String(schemaInfo))
 		})
 
 		if err != nil {

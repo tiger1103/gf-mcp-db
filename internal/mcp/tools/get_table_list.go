@@ -1,25 +1,21 @@
 /*
  * @desc:列出数据库表工具
- * @company:云南奇讯科技有限公司
- * @Author: yixiaohu<yxh669@qq.com>
- * @Date:   2025/4/23 16:13
  */
 
 package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/tiger1103/gf-mcp-db/internal/consts"
-	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
-	"github.com/tiger1103/gf-mcp-db/library/liberr"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/dialect"
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 )
 
 // ListTables 列出数据库表工具结构
@@ -51,45 +47,20 @@ func (t *ListTables) Handler(r *Reg) func(ctx context.Context, request mcp.CallT
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取可选参数
-			pattern, _ := request.GetArguments()["pattern"].(string)
+			db := getDB(ctx)
 
-			// 获取数据库连接 - 使用 "default" 组名
-			var db gdb.DB
-			g.TryCatch(ctx, func(ctx context.Context) {
-				db = g.DB("default")
-			}, func(ctx context.Context, exception error) {
-				g.Log().Error(ctx, exception.Error())
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			})
+			tables, tablesErr := db.Tables(ctx)
+			liberr.ErrIsNil(ctx, tablesErr)
 
-			if db == nil {
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			}
-
-			// 构建查询语句
-			var sql string
-			if pattern == "" {
-				sql = "SHOW TABLES"
-			} else {
-				sql = fmt.Sprintf("SHOW TABLES LIKE '%s'", pattern)
-			}
-
-			// 执行查询
-			var queryResult gdb.Result
-			var queryErr error
-			queryResult, queryErr = db.Query(ctx, sql)
-			liberr.ErrIsNil(ctx, queryErr)
-
-			// 提取表名列表
-			var tableNames []string
-			for _, row := range queryResult {
-				for _, value := range row {
-					tableNames = append(tableNames, gconv.String(value))
+			pattern := argString(request.GetArguments(), "pattern")
+			names := make([]string, 0, len(tables))
+			for _, name := range tables {
+				if dialect.MatchPattern(name, pattern) {
+					names = append(names, name)
 				}
 			}
 
-			result = fmt.Sprintf("当前数据库中共有 %d 个表，表名列表：%s", len(tableNames), gconv.String(tableNames))
+			result = fmt.Sprintf("当前数据库中共有 %d 个表，表名列表：%s", len(names), gconv.String(names))
 		})
 
 		if err != nil {

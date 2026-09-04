@@ -58,10 +58,13 @@ func requireArgString(args map[string]any, key string) string {
 	return v
 }
 
-// argInt 读取正整数参数（MCP JSON 数值可能为 float64，统一经 gconv 转换；非法回落默认值）
+// argInt 读取正整数参数（MCP JSON 数值可能为 float64，统一经 gconv 转换；布尔等非法类型回落默认值）
 func argInt(args map[string]any, key string, def int) int {
 	v, ok := args[key]
 	if !ok || v == nil {
+		return def
+	}
+	if _, isBool := v.(bool); isBool {
 		return def
 	}
 	if n := gconv.Int(v); n > 0 {
