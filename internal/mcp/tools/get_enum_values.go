@@ -7,6 +7,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
@@ -70,6 +71,7 @@ func (t *GetEnumValues) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 
 			querySQL := fmt.Sprintf("SELECT DISTINCT %s FROM %s", d.QuoteIdent(column), d.QuoteIdent(table))
 			if where != "" {
+				// where 为调用方 SQL 片段，按现状原样拼接（与 get_sample_data 一致）
 				querySQL += " WHERE " + where
 			}
 			querySQL = d.Paginate(querySQL, limit)
@@ -86,8 +88,11 @@ func (t *GetEnumValues) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 
 			columnType := ""
 			if fields, fieldsErr := db.TableFields(ctx, table); fieldsErr == nil {
-				if f, ok := fields[column]; ok {
-					columnType = f.Type
+				for _, f := range fields {
+					if strings.EqualFold(f.Name, column) {
+						columnType = f.Type
+						break
+					}
 				}
 			}
 

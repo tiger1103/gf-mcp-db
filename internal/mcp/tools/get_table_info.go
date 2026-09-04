@@ -53,7 +53,7 @@ func (t *GetTableInfo) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 
 			fields, fieldsErr := db.TableFields(ctx, table)
 			if fieldsErr != nil && isCaseInsensitiveCatalog(d.Name()) && table != strings.ToUpper(table) {
-				// Oracle/DM 目录视图按大写匹配：小写表名自动用大写重试一次
+				// Oracle/DM 驱动内部已做大写归一；此处防御性重试覆盖异常路径
 				fields, fieldsErr = db.TableFields(ctx, strings.ToUpper(table))
 			}
 			liberr.ErrIsNil(ctx, fieldsErr)
@@ -85,9 +85,13 @@ func (t *GetTableInfo) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 			}
 			if fks, err := d.ForeignKeys(ctx, db, lookupTable); err == nil && len(fks) > 0 {
 				tableInfo["foreign_keys"] = fks
+			} else if err != nil {
+				tableInfo["foreign_keys_error"] = err.Error()
 			}
 			if stat, err := d.TableStat(ctx, db, lookupTable); err == nil && stat != nil {
 				tableInfo["table_stat"] = stat
+			} else if err != nil {
+				tableInfo["table_stat_error"] = err.Error()
 			}
 
 			result = fmt.Sprintf("表 %s 的详细信息：%s", table, gconv.String(tableInfo))

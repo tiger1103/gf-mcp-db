@@ -46,6 +46,17 @@ func normTable(table string) string {
 	return strings.ToUpper(strings.TrimSpace(table))
 }
 
+// QuoteIdent Oracle/DM 覆盖：标识符统一按大写处理（与字典存储约定、normTable 一致）。
+// 以带引号小写创建的同名对象不适用此约定。
+func (d *oracleLikeDialect) QuoteIdent(name string) string {
+	parts := strings.Split(strings.TrimSpace(name), ".")
+	upper := make([]string, 0, len(parts))
+	for _, p := range parts {
+		upper = append(upper, strings.ToUpper(strings.TrimSpace(p)))
+	}
+	return d.BaseDialect.QuoteIdent(strings.Join(upper, "."))
+}
+
 // PrimaryKeys 主键列集合（ALL_CONSTRAINTS 约束类型 P）
 func (d *oracleLikeDialect) PrimaryKeys(ctx context.Context, db gdb.DB, table string) (map[string]bool, error) {
 	res, err := db.Query(ctx, `
