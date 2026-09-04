@@ -2,6 +2,17 @@
 
 一个通用的数据库操作 MCP（Model Context Protocol）服务，支持多种数据库类型的数据操作。
 
+## 支持的数据库
+
+| 数据库 | --type 取值 | 默认端口 | 驱动（全部纯 Go，零 CGO） |
+|--------|-------------|----------|---------------------------|
+| MySQL | `mysql` | 3306 | go-sql-driver/mysql |
+| PostgreSQL | `postgres` / `postgresql` / `pgsql` | 5432 | lib/pq |
+| SQLite | `sqlite` | -（文件路径） | glebarez/go-sqlite（modernc，无需 CGO） |
+| SQL Server | `sqlserver` / `mssql` | 1433 | microsoft/go-mssqldb |
+| Oracle | `oracle` | 1521 | sijms/go-ora（无需 Instant Client） |
+| 达梦 DM8 | `dm` | 5236 | chunanyong/dm |
+
 ## 功能特性
 
 | 工具名 | 用途 |
@@ -193,7 +204,8 @@ go run main.go
         "X-DB-Port": "3306",
         "X-DB-User": "root",
         "X-DB-Password": "123456",
-        "X-DB-Database": "test"
+        "X-DB-Database": "test",
+        "X-DB-Extra": "k1=v1&k2=v2"
       }
     }
   }
@@ -206,11 +218,13 @@ go run main.go
 {
   "mcpServers": {
     "universal-db-mcp": {
-      "url": "http://localhost:8000/mcp?type=mysql&host=localhost&port=3306&user=root&password=123456&database=test"
+      "url": "http://localhost:8000/mcp?type=mysql&host=localhost&port=3306&user=root&password=123456&database=test&extra=k1%3Dv1"
     }
   }
 }
 ```
+
+`extra` / `X-DB-Extra` 用于透传驱动额外参数（同 CLI `--extra`）。
 
 ### 方式二：Stdio 模式（推荐）
 
@@ -271,14 +285,15 @@ Windows 系统：
 **命令行参数说明：**
 | 参数 | 必需 | 说明 | 默认值 |
 |------|------|------|--------|
-| --type | 是 | 数据库类型 (mysql, postgres, sqlite) | - |
-| --host | 是* | 数据库主机地址 (SQLite 不需要) | - |
-| --port | 是* | 数据库端口 (SQLite 不需要) | - |
-| --user | 是* | 数据库用户名 (SQLite 不需要) | - |
-| --password | 是* | 数据库密码 (SQLite 不需要) | - |
+| --type | 是 | 数据库类型（见上方支持列表） | - |
+| --host | 是* | 数据库主机（SQLite 均不需要） | - |
+| --port | 是* | 数据库端口（可省略用默认值；SQLite 均不需要） | - |
+| --user | 是* | 数据库用户名（SQLite 均不需要） | - |
+| --password | 是* | 数据库密码（SQLite 均不需要） | - |
 | --database | 是 | 数据库名称或 SQLite 文件路径 | - |
 | --charset | 否 | 字符集 | utf8mb4 |
 | --debug | 否 | 是否开启调试模式 | false |
+| --extra | 否 | 透传驱动的额外参数，格式 k1=v1&k2=v2（如 MySQL 的 loc=Local、SQLite 的 busy_timeout(5000)） | - |
 
 *注：SQLite 类型只需要 --database 参数（文件路径）
 
@@ -336,6 +351,53 @@ Windows 系统：
   }
 }
 ```
+
+**SQL Server:**
+```json
+{
+  "mcpServers": {
+    "my-sqlserver": {
+      "command": "./bin/gf-mcp-db",
+      "args": ["--type", "sqlserver", "--host", "localhost", "--user", "sa", "--password", "your_password", "--database", "master"]
+    }
+  }
+}
+```
+
+**Oracle:**
+```json
+{
+  "mcpServers": {
+    "my-oracle": {
+      "command": "./bin/gf-mcp-db",
+      "args": ["--type", "oracle", "--host", "localhost", "--port", "1521", "--user", "scott", "--password", "tiger", "--database", "ORCL"]
+    }
+  }
+}
+```
+
+**达梦 DM8:**
+```json
+{
+  "mcpServers": {
+    "my-dm": {
+      "command": "./bin/gf-mcp-db",
+      "args": ["--type", "dm", "--host", "localhost", "--port", "5236", "--user", "SYSDBA", "--password", "SYSDBA", "--database", "DMSERVER"]
+    }
+  }
+}
+```
+
+## 已知限制
+
+- `clear_cache` 清除的是服务端缓存的元数据（表/列信息），全库一致；指定 `table` 参数仅用于结果提示，不做表级清理。
+- Oracle：`execute_query` 的 INSERT 不返回自增 ID（Oracle 无 LastInsertId）；分页语法为 `FETCH FIRST n ROWS ONLY`（Oracle 12c+）；标识符按大写字典约定处理（小写输入自动转为大写匹配）。
+- SQL Server：分页使用 `SELECT TOP n`（仅适配工具内部构造的简单查询）；元数据查询限定在连接账号的默认 schema 内；gf 驱动要求自动时间戳字段使用 datetime2/datetimeoffset。
+- 达梦 DM8：兼容 Oracle 目录视图，分页支持 LIMIT 语法；元数据以登录用户（即目标 schema）的 `OWNER = USER` 过滤。
+- SQLite：内嵌引擎（纯 Go），PRAGMA 不支持参数绑定；方言层暂不支持 `schema.table` 形式的表名；无行数估算。
+- MySQL 5.7 兼容：元数据查询使用 information_schema（不依赖 5.7 不支持的预编译 SHOW 语句）。
+- HTTP SSE 模式下多个会话共享同一个 default 连接组：后初始化的会话配置会覆盖先前的（进程级单连接组设计，与旧版一致）。
+- `clear_cache`/元数据缓存为进程内缓存，多实例部署互不可见。
 
 ## 项目结构
 
