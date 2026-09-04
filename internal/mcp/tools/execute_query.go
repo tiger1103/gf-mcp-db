@@ -1,26 +1,20 @@
 /*
  * @desc:执行 SQL 查询工具
- * @company:云南奇讯科技有限公司
- * @Author: yixiaohu<yxh669@qq.com>
- * @Date:   2025/4/23 16:13
  */
 
 package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/tiger1103/gf-mcp-db/internal/consts"
-	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
-	"github.com/tiger1103/gf-mcp-db/library/liberr"
-	"strings"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 )
 
 // ExecuteQuery 执行 SQL 查询工具结构
@@ -33,6 +27,7 @@ func (t *ExecuteQuery) ReturnTool() mcp.Tool {
 
 ## 🎯 工具功能
 执行 SQL 查询或数据库命令，支持 SELECT、INSERT、UPDATE、DELETE 等操作。
+注意：SQL 语法需与当前连接的数据库类型匹配。
 
 ## 📋 支持的操作
 - SELECT 查询
@@ -49,7 +44,7 @@ func (t *ExecuteQuery) ReturnTool() mcp.Tool {
 
 插入数据:
 {
-  "sql": "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')"
+  "sql": "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')
 }`),
 		mcp.WithString("sql",
 			mcp.Required(),
@@ -64,53 +59,25 @@ func (t *ExecuteQuery) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取参数
-			sql, ok := request.GetArguments()["sql"].(string)
-			if !ok || sql == "" {
-				liberr.ErrIsNilCode(ctx, errors.New("sql 参数必须是非空字符串"), consts.CodeInfo)
-			}
+			args := request.GetArguments()
+			sqlStr := requireArgString(args, "sql")
+			limit := argInt(args, "limit", 100)
 
-			// 获取可选参数
-			limitVal, hasLimit := request.GetArguments()["limit"]
-			limit := 100
-			if hasLimit && limitVal != nil {
-				if l, ok := limitVal.(int); ok {
-					limit = l
-				}
-			}
+			db := getDB(ctx)
 
-			// 获取数据库连接
-			var db gdb.DB
-			g.TryCatch(ctx, func(ctx context.Context) {
-				db = g.DB("default")
-			}, func(ctx context.Context, exception error) {
-				g.Log().Error(ctx, exception.Error())
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			})
-
-			if db == nil {
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			}
-
-			// 判断 SQL 类型并执行相应操作
-			sqlUpper := strings.TrimSpace(strings.ToUpper(sql))
-			if strings.HasPrefix(sqlUpper, "SELECT") || strings.HasPrefix(sqlUpper, "SHOW") || strings.HasPrefix(sqlUpper, "EXPLAIN") {
-				// 查询操作
-				queryResult, queryErr := db.Query(ctx, sql)
+			if isQuerySQL(sqlStr) {
+				queryResult, queryErr := db.Query(ctx, sqlStr)
 				liberr.ErrIsNil(ctx, queryErr)
 
-				// 限制结果数量
 				if len(queryResult) > limit {
 					queryResult = queryResult[:limit]
 				}
 
 				result = fmt.Sprintf("查询成功，返回 %d 条记录，结果为：%s", len(queryResult), gconv.String(queryResult))
 			} else {
-				// 非查询操作（INSERT、UPDATE、DELETE、DDL 等）
-				execResult, execErr := db.Exec(ctx, sql)
+				execResult, execErr := db.Exec(ctx, sqlStr)
 				liberr.ErrIsNil(ctx, execErr)
 
-				// 获取影响行数
 				rowsAffected, _ := execResult.RowsAffected()
 				lastInsertId, _ := execResult.LastInsertId()
 				result = fmt.Sprintf("SQL 执行成功，影响行数：%d，最后插入 ID: %d", rowsAffected, lastInsertId)

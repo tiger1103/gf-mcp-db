@@ -17,6 +17,9 @@ func TestOracleDialectBasics(t *testing.T) {
 	if got := d.QuoteIdent("USERS"); got != `"USERS"` {
 		t.Fatalf("QuoteIdent = %q", got)
 	}
+	if got := d.QuoteIdent("users"); got != `"USERS"` {
+		t.Fatalf("QuoteIdent 小写应归一为大写: %q", got)
+	}
 	if got := d.Paginate("SELECT * FROM t", 5); got != "SELECT * FROM t FETCH FIRST 5 ROWS ONLY" {
 		t.Fatalf("Paginate = %q", got)
 	}
@@ -35,6 +38,9 @@ func TestDmDialectBasics(t *testing.T) {
 	}
 	if got := d.QuoteIdent("USERS"); got != `"USERS"` {
 		t.Fatalf("QuoteIdent = %q", got)
+	}
+	if got := d.QuoteIdent("users"); got != `"USERS"` {
+		t.Fatalf("QuoteIdent 小写应归一为大写: %q", got)
 	}
 	// DM8 兼容 MySQL 的 LIMIT 语法
 	if got := d.Paginate("SELECT * FROM t", 5); got != "SELECT * FROM t LIMIT 5" {

@@ -1,24 +1,19 @@
 /*
  * @desc:清除 Schema 缓存工具
- * @company:云南奇讯科技有限公司
- * @Author: yixiaohu<yxh669@qq.com>
- * @Date:   2025/4/23 16:13
  */
 
 package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/tiger1103/gf-mcp-db/internal/consts"
-	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
-	"github.com/tiger1103/gf-mcp-db/library/liberr"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 )
 
 // ClearCache 清除 Schema 缓存工具结构
@@ -30,7 +25,8 @@ func (t *ClearCache) ReturnTool() mcp.Tool {
 		mcp.WithDescription(`# 🗑️ 清除 Schema 缓存
 
 ## 🎯 工具功能
-清除数据库 Schema 缓存，当数据库结构发生变化时使用此工具刷新缓存。
+清除服务端缓存的数据库元数据（表/列信息），当数据库结构发生变化后使用此工具刷新缓存。
+适用于所有数据库类型。
 
 ## 💡 使用示例
 清除所有缓存:
@@ -50,34 +46,15 @@ func (t *ClearCache) Handler(r *Reg) func(ctx context.Context, request mcp.CallT
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取可选参数
 			table, _ := request.GetArguments()["table"].(string)
 
-			// 获取数据库连接
-			var db gdb.DB
-			g.TryCatch(ctx, func(ctx context.Context) {
-				db = g.DB("default")
-			}, func(ctx context.Context, exception error) {
-				g.Log().Error(ctx, exception.Error())
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			})
+			db := getDB(ctx)
 
-			if db == nil {
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
+			// 清除 gdb 内部元数据缓存（Tables/TableFields），全库一致，不再执行 MySQL 专有的 FLUSH TABLES
+			cache := db.GetCore().GetInnerMemCache()
+			if cacheErr := cache.Clear(ctx); cacheErr != nil {
+				liberr.ErrIsNil(ctx, cacheErr)
 			}
-
-			// 执行 FLUSH 操作
-			var flushSql string
-			if table == "" {
-				// 清除所有表相关的缓存
-				flushSql = "FLUSH TABLES"
-			} else {
-				// 清除指定表的缓存
-				flushSql = fmt.Sprintf("FLUSH TABLES `%s`", table)
-			}
-
-			_, flushErr := db.Exec(ctx, flushSql)
-			liberr.ErrIsNil(ctx, flushErr)
 
 			if table == "" {
 				result = "Schema 缓存已清除（所有表）"
