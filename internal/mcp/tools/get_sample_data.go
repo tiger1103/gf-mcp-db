@@ -1,27 +1,23 @@
 /*
  * @desc:获取表示例数据工具
- * @company:云南奇讯科技有限公司
- * @Author: yixiaohu<yxh669@qq.com>
- * @Date:   2025/4/23 16:13
  */
 
 package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/tiger1103/gf-mcp-db/internal/consts"
-	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
-	"github.com/tiger1103/gf-mcp-db/library/liberr"
 	"regexp"
 	"strings"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/tiger1103/gf-mcp-db/internal/consts"
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 )
 
 // GetSampleData 获取表示例数据工具结构
@@ -64,42 +60,22 @@ func (t *GetSampleData) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取参数
-			table, ok := request.GetArguments()["table"].(string)
-			if !ok || table == "" {
-				liberr.ErrIsNilCode(ctx, errors.New("table 参数必须是非空字符串"), consts.CodeInfo)
+			args := request.GetArguments()
+			table := requireArgString(args, "table")
+			where := argString(args, "where")
+			order := argString(args, "order")
+			limit := argInt(args, "limit", 10)
+
+			db := getDB(ctx)
+			d := currentDialect(ctx, db)
+
+			fields, fieldsErr := db.TableFields(ctx, table)
+			liberr.ErrIsNil(ctx, fieldsErr)
+			if len(fields) == 0 {
+				panic(liberr.NewCode(consts.CodeInfo, "表不存在或没有列信息："+table))
 			}
 
-			// 获取可选参数
-			where, _ := request.GetArguments()["where"].(string)
-			order, _ := request.GetArguments()["order"].(string)
-			limitVal, hasLimit := request.GetArguments()["limit"]
-			limit := 10
-			if hasLimit && limitVal != nil {
-				if l, ok := limitVal.(int); ok {
-					limit = l
-				}
-			}
-
-			// 获取数据库连接
-			var db gdb.DB
-			g.TryCatch(ctx, func(ctx context.Context) {
-				db = g.DB("default")
-			}, func(ctx context.Context, exception error) {
-				g.Log().Error(ctx, exception.Error())
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			})
-
-			if db == nil {
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			}
-
-			// 获取列信息用于脱敏
-			columnsSql := fmt.Sprintf("SHOW COLUMNS FROM `%s`", table)
-			columnsResult, columnsErr := db.Query(ctx, columnsSql)
-			liberr.ErrIsNil(ctx, columnsErr)
-
-			// 识别需要脱敏的列
+			// 识别需要脱敏的列（按列名模式匹配）
 			sensitiveColumns := make(map[string]bool)
 			sensitivePatterns := []string{
 				"password", "passwd", "pwd", "secret", "token", "key",
@@ -107,42 +83,27 @@ func (t *GetSampleData) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 				"id_card", "idcard", "identity", "card_no", "cardno",
 				"address", "bank_card", "bankcard", "credit_card",
 			}
-
-			for _, row := range columnsResult {
-				colName := strings.ToLower(gconv.String(row["Field"]))
-				colType := strings.ToLower(gconv.String(row["Type"]))
-
-				// 检查列名是否匹配敏感模式
+			for _, f := range fields {
+				colName := strings.ToLower(f.Name)
 				for _, pattern := range sensitivePatterns {
 					if strings.Contains(colName, pattern) {
 						sensitiveColumns[colName] = true
 						break
 					}
 				}
-
-				// 检查列类型是否为字符串类型且长度较大（可能是敏感数据）
-				if strings.Contains(colType, "varchar") || strings.Contains(colType, "text") {
-					for _, pattern := range sensitivePatterns {
-						if strings.Contains(colName, pattern) {
-							sensitiveColumns[colName] = true
-							break
-						}
-					}
-				}
 			}
 
-			// 构建查询语句
-			sql := fmt.Sprintf("SELECT * FROM `%s`", table)
+			// 构建查询语句（where/order 为调用方 SQL 片段，按现状原样拼接）
+			querySQL := fmt.Sprintf("SELECT * FROM %s", d.QuoteIdent(table))
 			if where != "" {
-				sql += " WHERE " + where
+				querySQL += " WHERE " + where
 			}
 			if order != "" {
-				sql += " ORDER BY " + order
+				querySQL += " ORDER BY " + order
 			}
-			sql += fmt.Sprintf(" LIMIT %d", limit)
+			querySQL = d.Paginate(querySQL, limit)
 
-			// 执行查询
-			queryResult, queryErr := db.Query(ctx, sql)
+			queryResult, queryErr := db.Query(ctx, querySQL)
 			liberr.ErrIsNil(ctx, queryErr)
 
 			// 对敏感数据进行脱敏

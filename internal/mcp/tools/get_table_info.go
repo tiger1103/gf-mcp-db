@@ -1,25 +1,23 @@
 /*
  * @desc:获取表详细信息工具
- * @company:云南奇讯科技有限公司
- * @Author: yixiaohu<yxh669@qq.com>
- * @Date:   2025/4/23 16:13
  */
 
 package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/tiger1103/gf-mcp-db/internal/consts"
-	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
-	"github.com/tiger1103/gf-mcp-db/library/liberr"
+	"strings"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/tiger1103/gf-mcp-db/internal/consts"
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/dialect"
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 )
 
 // GetTableInfo 获取表详细信息工具结构
@@ -49,92 +47,47 @@ func (t *GetTableInfo) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取参数
-			table, ok := request.GetArguments()["table"].(string)
-			if !ok || table == "" {
-				liberr.ErrIsNilCode(ctx, errors.New("table 参数必须是非空字符串"), consts.CodeInfo)
+			table := requireArgString(request.GetArguments(), "table")
+			db := getDB(ctx)
+			d := currentDialect(ctx, db)
+
+			fields, fieldsErr := db.TableFields(ctx, table)
+			if fieldsErr != nil && isCaseInsensitiveCatalog(d.Name()) && table != strings.ToUpper(table) {
+				// Oracle/DM 目录视图按大写匹配：小写表名自动用大写重试一次
+				fields, fieldsErr = db.TableFields(ctx, strings.ToUpper(table))
+			}
+			liberr.ErrIsNil(ctx, fieldsErr)
+			if len(fields) == 0 {
+				panic(liberr.NewCode(consts.CodeInfo, "表不存在或没有列信息："+table))
+			}
+			lookupTable := table
+			if isCaseInsensitiveCatalog(d.Name()) {
+				lookupTable = strings.ToUpper(table)
 			}
 
-			// 获取数据库连接
-			var db gdb.DB
-			g.TryCatch(ctx, func(ctx context.Context) {
-				db = g.DB("default")
-			}, func(ctx context.Context, exception error) {
-				g.Log().Error(ctx, exception.Error())
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			})
-
-			if db == nil {
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
+			pks, pkErr := d.PrimaryKeys(ctx, db, lookupTable)
+			if pkErr != nil {
+				// 主键信息不可用时显式标注，避免 primary_key:false 被误读为「无主键」
+				g.Log().Warning(ctx, "获取表主键失败:", table, pkErr)
 			}
 
-			// 构建表信息
-			tableInfo := make(map[string]interface{})
-			tableInfo["table_name"] = table
-
-			// 获取列信息
-			columnsSql := fmt.Sprintf("SHOW COLUMNS FROM `%s`", table)
-			columnsResult, columnsErr := db.Query(ctx, columnsSql)
-			liberr.ErrIsNil(ctx, columnsErr)
-
-			var columns []map[string]string
-			for _, row := range columnsResult {
-				colInfo := make(map[string]string)
-				for key, value := range row {
-					colInfo[key] = gconv.String(value)
-				}
-				columns = append(columns, colInfo)
+			tableInfo := map[string]any{
+				"table_name": table,
+				"columns":    dialect.ColumnsFromTableFields(fields, pks),
 			}
-			tableInfo["columns"] = columns
-
-			// 获取索引信息
-			indexSql := fmt.Sprintf("SHOW INDEX FROM `%s`", table)
-			indexResult, indexErr := db.Query(ctx, indexSql)
-			if indexErr == nil {
-				var indexes []map[string]string
-				for _, row := range indexResult {
-					idxInfo := make(map[string]string)
-					for key, value := range row {
-						idxInfo[key] = gconv.String(value)
-					}
-					indexes = append(indexes, idxInfo)
-				}
+			if pkErr != nil {
+				tableInfo["primary_keys_error"] = pkErr.Error()
+			}
+			if indexes, err := d.Indexes(ctx, db, lookupTable); err == nil {
 				tableInfo["indexes"] = indexes
+			} else {
+				tableInfo["indexes_error"] = err.Error()
 			}
-
-			// 获取表统计信息（行数、引擎等）
-			statsSql := fmt.Sprintf("SHOW TABLE STATUS WHERE Name = '%s'", table)
-			statsResult, statsErr := db.Query(ctx, statsSql)
-			if statsErr == nil && len(statsResult) > 0 {
-				tableInfo["engine"] = gconv.String(statsResult[0]["Engine"])
-				tableInfo["rows_estimate"] = gconv.String(statsResult[0]["Rows"])
-				tableInfo["table_comment"] = gconv.String(statsResult[0]["Comment"])
-				tableInfo["data_length"] = gconv.String(statsResult[0]["Data_length"])
-				tableInfo["index_length"] = gconv.String(statsResult[0]["Index_length"])
+			if fks, err := d.ForeignKeys(ctx, db, lookupTable); err == nil && len(fks) > 0 {
+				tableInfo["foreign_keys"] = fks
 			}
-
-			// 获取外键信息
-			fkSql := fmt.Sprintf(`
-				SELECT 
-					CONSTRAINT_NAME,
-					COLUMN_NAME,
-					REFERENCED_TABLE_NAME,
-					REFERENCED_COLUMN_NAME
-				FROM information_schema.KEY_COLUMN_USAGE
-				WHERE TABLE_SCHEMA = DATABASE()
-				AND TABLE_NAME = '%s'
-				AND REFERENCED_TABLE_NAME IS NOT NULL`, table)
-			fkResult, fkErr := db.Query(ctx, fkSql)
-			if fkErr == nil && len(fkResult) > 0 {
-				var foreignKeys []map[string]string
-				for _, row := range fkResult {
-					fkInfo := make(map[string]string)
-					for key, value := range row {
-						fkInfo[key] = gconv.String(value)
-					}
-					foreignKeys = append(foreignKeys, fkInfo)
-				}
-				tableInfo["foreign_keys"] = foreignKeys
+			if stat, err := d.TableStat(ctx, db, lookupTable); err == nil && stat != nil {
+				tableInfo["table_stat"] = stat
 			}
 
 			result = fmt.Sprintf("表 %s 的详细信息：%s", table, gconv.String(tableInfo))
@@ -146,6 +99,11 @@ func (t *GetTableInfo) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 
 		return mcp.NewToolResultText(result), nil
 	}
+}
+
+// isCaseInsensitiveCatalog 目录视图按大写存储标识符的库（Oracle/DM）
+func isCaseInsensitiveCatalog(dbType string) bool {
+	return dbType == "oracle" || dbType == "dm"
 }
 
 // RegisterGetTableInfo 注册获取表详细信息工具

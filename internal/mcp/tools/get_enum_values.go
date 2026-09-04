@@ -1,25 +1,20 @@
 /*
  * @desc:获取列的唯一值工具
- * @company:云南奇讯科技有限公司
- * @Author: yixiaohu<yxh669@qq.com>
- * @Date:   2025/4/23 16:13
  */
 
 package tools
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/tiger1103/gf-mcp-db/internal/consts"
-	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
-	"github.com/tiger1103/gf-mcp-db/library/liberr"
 
-	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/util/gconv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/tiger1103/gf-mcp-db/internal/mcp/register"
+	"github.com/tiger1103/gf-mcp-db/library/liberr"
 )
 
 // GetEnumValues 获取列的唯一值工具结构
@@ -64,65 +59,36 @@ func (t *GetEnumValues) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var result string
 		err := g.Try(ctx, func(ctx context.Context) {
-			// 获取参数
-			table, ok := request.GetArguments()["table"].(string)
-			if !ok || table == "" {
-				liberr.ErrIsNilCode(ctx, errors.New("table 参数必须是非空字符串"), consts.CodeInfo)
-			}
+			args := request.GetArguments()
+			table := requireArgString(args, "table")
+			column := requireArgString(args, "column")
+			where := argString(args, "where")
+			limit := argInt(args, "limit", 1000)
 
-			column, ok := request.GetArguments()["column"].(string)
-			if !ok || column == "" {
-				liberr.ErrIsNilCode(ctx, errors.New("column 参数必须是非空字符串"), consts.CodeInfo)
-			}
+			db := getDB(ctx)
+			d := currentDialect(ctx, db)
 
-			// 获取可选参数
-			where, _ := request.GetArguments()["where"].(string)
-			limitVal, hasLimit := request.GetArguments()["limit"]
-			limit := 1000
-			if hasLimit && limitVal != nil {
-				if l, ok := limitVal.(int); ok {
-					limit = l
-				}
-			}
-
-			// 获取数据库连接
-			var db gdb.DB
-			g.TryCatch(ctx, func(ctx context.Context) {
-				db = g.DB("default")
-			}, func(ctx context.Context, exception error) {
-				g.Log().Error(ctx, exception.Error())
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			})
-
-			if db == nil {
-				liberr.ErrIsNilCode(ctx, errors.New("请先连接数据库，在建立 MCP 连接时提供数据库配置参数"), consts.CodeInfo)
-			}
-
-			// 构建查询语句
-			sql := fmt.Sprintf("SELECT DISTINCT `%s` FROM `%s`", column, table)
+			querySQL := fmt.Sprintf("SELECT DISTINCT %s FROM %s", d.QuoteIdent(column), d.QuoteIdent(table))
 			if where != "" {
-				sql += " WHERE " + where
+				querySQL += " WHERE " + where
 			}
-			sql += fmt.Sprintf(" LIMIT %d", limit)
+			querySQL = d.Paginate(querySQL, limit)
 
-			// 执行查询
-			queryResult, queryErr := db.Query(ctx, sql)
+			queryResult, queryErr := db.Query(ctx, querySQL)
 			liberr.ErrIsNil(ctx, queryErr)
 
-			// 提取唯一值列表
-			var uniqueValues []string
+			uniqueValues := make([]string, 0, len(queryResult))
 			for _, row := range queryResult {
 				for _, value := range row {
 					uniqueValues = append(uniqueValues, gconv.String(value))
 				}
 			}
 
-			// 获取列类型信息
-			typeSql := fmt.Sprintf("SHOW COLUMNS FROM `%s` WHERE Field = '%s'", table, column)
-			typeResult, typeErr := db.Query(ctx, typeSql)
 			columnType := ""
-			if typeErr == nil && len(typeResult) > 0 {
-				columnType = gconv.String(typeResult[0]["Type"])
+			if fields, fieldsErr := db.TableFields(ctx, table); fieldsErr == nil {
+				if f, ok := fields[column]; ok {
+					columnType = f.Type
+				}
 			}
 
 			result = fmt.Sprintf("列 %s.%s 的唯一值（类型：%s）：共 %d 个，值为：%s",
