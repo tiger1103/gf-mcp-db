@@ -24,7 +24,7 @@ type pgsqlDialect struct {
 	BaseDialect
 }
 
-// Indexes 索引列表（pg_index / pg_attribute）
+// Indexes 索引列表（pg_index / pg_attribute；表达式索引的列无法以普通列名表达，暂不列出）
 func (d *pgsqlDialect) Indexes(ctx context.Context, db gdb.DB, table string) (gdb.Result, error) {
 	res, err := db.Query(ctx, `
 		SELECT i.relname AS index_name, a.attname AS column_name, ix.indisunique AS is_unique
@@ -33,7 +33,7 @@ func (d *pgsqlDialect) Indexes(ctx context.Context, db gdb.DB, table string) (gd
 		JOIN pg_class i ON i.oid = ix.indexrelid
 		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
 		JOIN pg_namespace n ON n.oid = t.relnamespace
-		WHERE t.relname = ? AND n.nspname = current_schema() AND i.relname NOT LIKE 'pg\_%'
+		WHERE t.relname = ? AND n.nspname = current_schema()
 		ORDER BY i.relname, a.attnum`, table)
 	if err != nil {
 		return nil, err
@@ -49,30 +49,37 @@ func (d *pgsqlDialect) Indexes(ctx context.Context, db gdb.DB, table string) (gd
 	return out, nil
 }
 
-// ForeignKeys 外键列表（information_schema）
+// ForeignKeys 外键列表（pg_constraint：约束名仅表内唯一，information_schema 同名约束会跨表误配）。
+// 注意：使用 unnest WITH ORDINALITY，需 PostgreSQL 9.4+。
 func (d *pgsqlDialect) ForeignKeys(ctx context.Context, db gdb.DB, table string) (gdb.Result, error) {
 	res, err := db.Query(ctx, `
-		SELECT tc.constraint_name AS constraint_name, kcu.column_name AS column_name,
-		       ccu.table_name AS referenced_table_name, ccu.column_name AS referenced_column_name
-		FROM information_schema.table_constraints tc
-		JOIN information_schema.key_column_usage kcu
-		  ON tc.constraint_name = kcu.constraint_name AND tc.constraint_schema = kcu.constraint_schema
-		JOIN information_schema.constraint_column_usage ccu
-		  ON ccu.constraint_name = tc.constraint_name AND ccu.constraint_schema = tc.constraint_schema
-		WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name = ?
-		ORDER BY tc.constraint_name, kcu.ordinal_position`, table)
+		SELECT con.conname AS constraint_name,
+		       src_att.attname AS column_name,
+		       tgt.relname AS referenced_table_name,
+		       tgt_att.attname AS referenced_column_name
+		FROM pg_constraint con
+		JOIN pg_class src ON src.oid = con.conrelid
+		JOIN pg_namespace n ON n.oid = src.relnamespace
+		JOIN pg_class tgt ON tgt.oid = con.confrelid
+		CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ck(attnum, ord)
+		JOIN pg_attribute src_att ON src_att.attrelid = con.conrelid AND src_att.attnum = ck.attnum
+		JOIN pg_attribute tgt_att ON tgt_att.attrelid = con.confrelid AND tgt_att.attnum = con.confkey[ck.ord]
+		WHERE con.contype = 'f' AND src.relname = ? AND n.nspname = current_schema()
+		ORDER BY con.conname, ck.ord`, table)
 	if err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
-// TableStat 行数估算与表注释（pg_class）；reltuples < 0 表示未 ANALYZE，省略该键
+// TableStat 行数估算与表注释（pg_class，限当前 schema）；reltuples < 0 表示未 ANALYZE（PG 13+），省略该键。
+// 注：PG 12 及以下未 ANALYZE 的表 reltuples 为 0，会显示 rows_estimate=0。
 func (d *pgsqlDialect) TableStat(ctx context.Context, db gdb.DB, table string) (gdb.Record, error) {
 	res, err := db.Query(ctx, `
 		SELECT c.reltuples::bigint AS rows_estimate, obj_description(c.oid, 'pg_class') AS table_comment
 		FROM pg_class c
-		WHERE c.relname = ? AND c.relkind IN ('r','p')`, table)
+		JOIN pg_namespace n ON n.oid = c.relnamespace
+		WHERE c.relname = ? AND c.relkind IN ('r','p') AND n.nspname = current_schema()`, table)
 	if err != nil {
 		return nil, err
 	}
