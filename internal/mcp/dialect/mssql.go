@@ -15,8 +15,6 @@ import (
 
 func init() {
 	Register(NewMssqlDialect())
-	// 别名：sqlserver（用户常用类型名，大小写归一后命中）指向同一 mssql 方言实例
-	dialects["sqlserver"] = dialects["mssql"]
 }
 
 // NewMssqlDialect 构造 SQL Server 方言（引用符与 gf mssql 驱动一致，为双引号）
@@ -28,16 +26,12 @@ type mssqlDialect struct {
 	BaseDialect
 }
 
-// Paginate TOP 语法（兼容 SELECT DISTINCT；非 SELECT 语句原样返回）
+// Paginate TOP 语法（兼容 SELECT DISTINCT；先去除尾部分号/空白再改写，与基类 LIMIT 分支语义一致）
 func (d *mssqlDialect) Paginate(selectSQL string, limit int) string {
 	if limit <= 0 {
 		limit = 100
 	}
-	s := strings.TrimSpace(selectSQL)
-	// 含分号的语句（批处理或已收尾）不做 TOP 改写，原样返回（不清理分号）
-	if strings.Contains(s, ";") {
-		return s
-	}
+	s := strings.TrimRight(strings.TrimSpace(selectSQL), "; \t\n\r")
 	upper := strings.ToUpper(s)
 	if strings.HasPrefix(upper, "SELECT DISTINCT") {
 		return "SELECT DISTINCT TOP " + strconv.Itoa(limit) + s[len("SELECT DISTINCT"):]
