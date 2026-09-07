@@ -14,7 +14,7 @@ gfcli:
 
   build:
     name: "gf-mcp-db"
-    arch: "amd64,arm64,arm"
+    arch: "amd64,arm64"
     system: "linux,windows,darwin"
     mod: "none"
     packSrc: "resource,manifest"
