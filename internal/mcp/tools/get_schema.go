@@ -61,7 +61,7 @@ func (t *GetSchema) Handler(r *Reg) func(ctx context.Context, request mcp.CallTo
 				}
 				entry := map[string]any{"table_name": tableName}
 
-				fields, fieldsErr := db.TableFields(ctx, tableName)
+				fields, fieldsErr := d.TableFields(ctx, db, tableName)
 				if fieldsErr == nil {
 					pks, pkErr := d.PrimaryKeys(ctx, db, tableName)
 					if pkErr != nil {

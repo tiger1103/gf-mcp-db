@@ -83,9 +83,14 @@ func (t *ExecuteQuery) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 				execResult, execErr := db.Exec(ctx, sqlStr)
 				liberr.ErrIsNil(ctx, execErr)
 
-				rowsAffected, _ := execResult.RowsAffected()
-				lastInsertId, _ := execResult.LastInsertId()
-				result = fmt.Sprintf("SQL 执行成功，影响行数：%d，最后插入 ID: %d", rowsAffected, lastInsertId)
+				if execResult == nil {
+					// ClickHouse 等驱动不实现 RowsAffected/LastInsertId（gf 驱动会主动忽略执行结果）
+					result = "SQL 执行成功（当前数据库驱动不返回影响行数与最后插入 ID）"
+				} else {
+					rowsAffected, _ := execResult.RowsAffected()
+					lastInsertId, _ := execResult.LastInsertId()
+					result = fmt.Sprintf("SQL 执行成功，影响行数：%d，最后插入 ID: %d", rowsAffected, lastInsertId)
+				}
 			}
 		})
 

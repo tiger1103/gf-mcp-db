@@ -18,7 +18,7 @@ import (
 
 // Config 数据库连接配置（三种入口共用：CLI 参数 / URL query / HTTP header）
 type Config struct {
-	DBType   string // mysql | postgres/pgsql | sqlite | sqlserver/mssql | oracle | dm
+	DBType   string // mysql | postgres/pgsql | sqlite | sqlserver/mssql | oracle | dm | clickhouse
 	Host     string
 	Port     string
 	Username string
@@ -42,15 +42,17 @@ var typeAliases = map[string]string{
 	"sqlserver":  "mssql",
 	"oracle":     "oracle",
 	"dm":         "dm",
+	"clickhouse": "clickhouse",
 }
 
 // defaultPorts 各数据库默认端口
 var defaultPorts = map[string]string{
-	"mysql":  "3306",
-	"pgsql":  "5432",
-	"mssql":  "1433",
-	"oracle": "1521",
-	"dm":     "5236",
+	"mysql":      "3306",
+	"pgsql":      "5432",
+	"mssql":      "1433",
+	"oracle":     "1521",
+	"dm":         "5236",
+	"clickhouse": "9000",
 }
 
 // NormalizeType 归一数据库类型别名
@@ -65,7 +67,7 @@ func BuildConfigNode(cfg *Config) (*gdb.ConfigNode, error) {
 	dbType, ok := NormalizeType(cfg.DBType)
 	if !ok {
 		return nil, liberr.NewCode(consts.CodeInfo, fmt.Sprintf(
-			"不支持的数据库类型：%q（支持：mysql、postgres/pgsql、sqlite、sqlserver/mssql、oracle、dm）", cfg.DBType))
+			"不支持的数据库类型：%q（支持：mysql、postgres/pgsql、sqlite、sqlserver/mssql、oracle、dm、clickhouse）", cfg.DBType))
 	}
 	if cfg.Extra != "" {
 		// 自行校验：gstr.Parse 对无 "=" 的片段会静默跳过而非报错，

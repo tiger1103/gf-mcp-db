@@ -51,10 +51,10 @@ func (t *GetTableInfo) Handler(r *Reg) func(ctx context.Context, request mcp.Cal
 			db := getDB(ctx)
 			d := currentDialect(ctx, db)
 
-			fields, fieldsErr := db.TableFields(ctx, table)
+			fields, fieldsErr := d.TableFields(ctx, db, table)
 			if fieldsErr != nil && isCaseInsensitiveCatalog(d.Name()) && table != strings.ToUpper(table) {
 				// Oracle/DM 驱动内部已做大写归一；此处防御性重试覆盖异常路径
-				fields, fieldsErr = db.TableFields(ctx, strings.ToUpper(table))
+				fields, fieldsErr = d.TableFields(ctx, db, strings.ToUpper(table))
 			}
 			liberr.ErrIsNil(ctx, fieldsErr)
 			if len(fields) == 0 {

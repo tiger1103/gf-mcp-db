@@ -32,6 +32,8 @@ func TestNormalizeType(t *testing.T) {
 		{"mssql", "mssql", true},
 		{"oracle", "oracle", true},
 		{"dm", "dm", true},
+		{"clickhouse", "clickhouse", true},
+		{"ClickHouse", "clickhouse", true},
 		{"", "", false},
 		{"foo", "", false},
 	}
@@ -135,6 +137,21 @@ func TestBuildConfigNode(t *testing.T) {
 		}
 		if node.Type != "mssql" || node.Port != "1433" {
 			t.Fatalf("mssql 字段不符: %+v", node)
+		}
+	})
+
+	t.Run("clickhouse 默认端口", func(t *testing.T) {
+		node, err := dbconn.BuildConfigNode(&dbconn.Config{
+			DBType: "clickhouse", Host: "h", Username: "default", Database: "default",
+		})
+		if err != nil {
+			t.Fatalf("意外错误: %v", err)
+		}
+		if node.Type != "clickhouse" || node.Port != "9000" {
+			t.Fatalf("clickhouse 字段不符: %+v", node)
+		}
+		if node.Charset != "" {
+			t.Fatalf("clickhouse 不应设置默认字符集: %q", node.Charset)
 		}
 	})
 

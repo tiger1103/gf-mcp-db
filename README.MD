@@ -12,6 +12,7 @@
 | SQL Server | `sqlserver` / `mssql` | 1433 | microsoft/go-mssqldb |
 | Oracle | `oracle` | 1521 | sijms/go-ora（无需 Instant Client） |
 | 达梦 DM8 | `dm` | 5236 | chunanyong/dm |
+| ClickHouse | `clickhouse` | 9000（native 协议） | ClickHouse/clickhouse-go v2 |
 
 ## 功能特性
 
@@ -291,9 +292,9 @@ Windows 系统：
 | --user | 是* | 数据库用户名（SQLite 均不需要） | - |
 | --password | 是* | 数据库密码（SQLite 均不需要） | - |
 | --database | 是 | 数据库名称或 SQLite 文件路径 | - |
-| --charset | 否 | 字符集（MySQL 默认 utf8mb4，DM 默认 UTF-8，其余库由驱动决定） | 按库默认 |
+| --charset | 否 | 字符集（MySQL 默认 utf8mb4，DM 默认 UTF-8，其余库由驱动决定；ClickHouse 不使用） | 按库默认 |
 | --debug | 否 | 是否开启调试模式 | false |
-| --extra | 否 | 透传驱动的额外参数，格式 k1=v1&k2=v2（如 MySQL 的 loc=Local、SQLite 的 busy_timeout(5000)） | - |
+| --extra | 否 | 透传驱动的额外参数，格式 k1=v1&k2=v2（如 MySQL 的 loc=Local、SQLite 的 busy_timeout(5000)、ClickHouse 的 dial_timeout=10s&compress=true） | - |
 
 *注：SQLite 类型只需要 --database 参数（文件路径）
 
@@ -388,6 +389,20 @@ Windows 系统：
 }
 ```
 
+**ClickHouse:**
+```json
+{
+  "mcpServers": {
+    "my-clickhouse": {
+      "command": "./bin/gf-mcp-db",
+      "args": ["--type", "clickhouse", "--host", "localhost", "--port", "9000", "--user", "default", "--password", "your_password", "--database", "default"]
+    }
+  }
+}
+```
+
+> ClickHouse 使用 native 协议（默认端口 9000），不是 HTTP 8123 端口。
+
 ## 已知限制
 
 - `clear_cache` 清除的是服务端缓存的元数据（表/列信息），全库一致；指定 `table` 参数仅用于结果提示，不做表级清理。
@@ -395,10 +410,11 @@ Windows 系统：
 - SQL Server：分页使用 `SELECT TOP n`（仅适配工具内部构造的简单查询）；元数据查询限定在连接账号的默认 schema 内；gf 驱动要求自动时间戳字段使用 datetime2/datetimeoffset。
 - 达梦 DM8：兼容 Oracle 目录视图，分页支持 LIMIT 语法；元数据以登录用户（即目标 schema）的 `OWNER = USER` 过滤。
 - SQLite：内嵌引擎（纯 Go），PRAGMA 不支持参数绑定；方言层暂不支持 `schema.table` 形式的表名；无行数估算。
+- ClickHouse：无传统二级索引与外键——`indexes` 返回数据跳过索引（`system.data_skipping_indices`，`column_name` 为索引表达式），`foreign_keys` 恒为空；主键取 `system.columns.is_in_primary_key`（MergeTree 的 ORDER BY 即主键）；`execute_query` 的 DML 不返回影响行数与自增 ID；UPDATE/DELETE 需使用 ClickHouse 的 `ALTER TABLE ... UPDATE/DELETE` 语法；元数据查询按 `currentDatabase()` 限定，需 ClickHouse 21.x+。
 - MySQL 5.7 兼容：表状态/外键查询使用 information_schema，不依赖 5.7 不支持的预编译 SHOW 语句（SHOW INDEX 在 5.7 可正常预编译）。
 - HTTP SSE 模式下多个会话共享同一个 default 连接组：后初始化的会话配置会覆盖先前的（进程级单连接组设计，与旧版一致）；某会话连接初始化失败时，服务不会中断，该请求之后的工具调用会继续使用上一个成功配置。
 - `clear_cache`/元数据缓存为进程内缓存，多实例部署互不可见。
-- **SQL Server / Oracle / DM 路径未经真实实例回归验证**（编译、单元测试与基于官方文档的 SQL 审查覆盖；SQLite/MySQL/PostgreSQL 已通过真实实例集成测试），首次接入真实实例建议先逐个工具冒烟。
+- **SQL Server / Oracle / DM 路径未经真实实例回归验证**（编译、单元测试与基于官方文档的 SQL 审查覆盖）；ClickHouse 已通过 ClickHouse 25.3 实例集成测试（`GF_MCP_TEST_CLICKHOUSE`），SQLite/MySQL/PostgreSQL 已通过真实实例集成测试。首次接入真实实例建议先逐个工具冒烟。
 
 ## 项目结构
 
@@ -413,7 +429,7 @@ gf-mcp-db/
 │   ├── mcp/
 │   │   ├── router/             # 路由注册（HTTP 模式）
 │   │   ├── register/           # MCP 注册器
-│   │   ├── dialect/            # 数据库方言层（6 库实现，元数据查询与分页差异）
+│   │   ├── dialect/            # 数据库方言层（7 库实现，元数据查询与分页差异）
 │   │   ├── tools/              # MCP 工具实现
 │   │   └── model/              # 数据模型
 │   └── consts/                 # 常量定义

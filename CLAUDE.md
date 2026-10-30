@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**gf-mcp-db** is a Universal Database MCP (Model Context Protocol) Server built with GoFrame and mcp-go. It provides database introspection and query execution tools for MySQL, PostgreSQL, SQLite, SQL Server, Oracle, and DM (DaMeng) via MCP protocol, with unified cross-database tool output.
+**gf-mcp-db** is a Universal Database MCP (Model Context Protocol) Server built with GoFrame and mcp-go. It provides database introspection and query execution tools for MySQL, PostgreSQL, SQLite, SQL Server, Oracle, DM (DaMeng), and ClickHouse via MCP protocol, with unified cross-database tool output.
 
 ## Quick Commands
 
@@ -31,7 +31,7 @@ Binary output goes to `./bin/gf-mcp-db` (or `gf-mcp-db.exe` on Windows).
 
 ### Entry Point
 
-`main.go` imports all six GoFrame database drivers (mysql, pgsql, sqlite, mssql, oracle, dm — all pure Go, no CGO), the boot package, and calls `cmd.Main.Run()`.
+`main.go` imports all seven GoFrame database drivers (mysql, pgsql, sqlite, mssql, oracle, dm, clickhouse — all pure Go, no CGO), the boot package, and calls `cmd.Main.Run()`.
 
 ### Connection Modes
 
@@ -66,7 +66,7 @@ Tools follow a registration pattern using reflection (`internal/mcp/register/reg
 
 - `internal/cmd/` - CLI handling, mode detection, stdio entry
 - `internal/dbconn/` - Unified connection config normalization/validation and `Init` (used by both stdio and HTTP paths; fills `gdb.ConfigNode` fields directly, short-circuits identical consecutive configs, restores last-good config on failed init)
-- `internal/mcp/dialect/` - Per-database dialect implementations (identifier quoting, LIMIT/TOP/FETCH FIRST pagination, indexes/foreign keys/table stats via catalog views, primary keys) behind a registry
+- `internal/mcp/dialect/` - Per-database dialect implementations (identifier quoting, LIMIT/TOP/FETCH FIRST pagination, `TableFields`, indexes/foreign keys/table stats via catalog views, primary keys) behind a registry; `BaseDialect.TableFields` delegates to the driver, ClickHouse overrides it with a database-filtered, parameterized `system.columns` query
 - `internal/mcp/register/` - MCP handler registration via reflection
 - `internal/mcp/tools/` - All MCP tool implementations (dialect-driven; `getDB` reads `gdb.Instance`, NOT `g.DB`)
 - `internal/mcp/router/` - HTTP route registration for SSE mode
@@ -89,4 +89,5 @@ Uses panic-based error flow through `library/liberr/`. Tools wrap logic in `g.Tr
 - Tool output uses a unified cross-database shape (columns: column_name/data_type/nullable/primary_key/default/extra/comment; unified keys for indexes/foreign keys/table stats). Error keys (`columns_error`, `primary_keys_error`, `indexes_error`, `foreign_keys_error`, `table_stat_error`) expose per-entry query failures.
 - There is duplication no longer: `internal/cmd/cmd.go` and `internal/mcp/router/router.go` both delegate connection setup to `internal/dbconn`.
 - Adding a new database: implement an `IDialect` in `internal/mcp/dialect/` with `init(){Register(...)}`, add the contrib driver import in `main.go`, and extend `internal/dbconn` type aliases/defaults.
-- Integration tests: `internal/mcp/tools/integration_test.go` (SQLite always runs; MySQL/PG gated by `GF_MCP_TEST_MYSQL`/`GF_MCP_TEST_PG` env vars, format `host|port|user|password|database`).
+- ClickHouse notes: `--type clickhouse` uses the native protocol (`clickhouse-go`, default port 9000; HTTP 8123 is not used); no traditional indexes/foreign keys (indexes = `system.data_skipping_indices`, FKs always empty); `execute_query` DML returns no rows-affected (gf ClickHouse driver ignores the result, handled in `execute_query.go`); expects ClickHouse 21.x+ (`system.columns.is_in_primary_key` / `system.tables.comment` / `system.data_skipping_indices`); `--extra` is passed as ClickHouse settings (e.g. `dial_timeout=10s&compress=true`).
+- Integration tests: `internal/mcp/tools/integration_test.go` (SQLite always runs; MySQL/PG/ClickHouse gated by `GF_MCP_TEST_MYSQL`/`GF_MCP_TEST_PG`/`GF_MCP_TEST_CLICKHOUSE` env vars, format `host|port|user|password|database`).

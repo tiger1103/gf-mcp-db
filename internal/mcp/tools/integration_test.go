@@ -1,8 +1,9 @@
 /*
  * @desc:7 个工具的跨库集成测试
- * SQLite 本地常跑；MySQL/PG 由环境变量门控：
- *   GF_MCP_TEST_MYSQL = host|port|user|password|database
- *   GF_MCP_TEST_PG    = host|port|user|password|database
+ * SQLite 本地常跑；MySQL/PG/ClickHouse 由环境变量门控：
+ *   GF_MCP_TEST_MYSQL      = host|port|user|password|database
+ *   GF_MCP_TEST_PG         = host|port|user|password|database
+ *   GF_MCP_TEST_CLICKHOUSE = host|port|user|password|database
  */
 
 package tools_test
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/gogf/gf/contrib/drivers/clickhouse/v2"
 	_ "github.com/gogf/gf/contrib/drivers/mysql/v2"
 	_ "github.com/gogf/gf/contrib/drivers/pgsql/v2"
 	_ "github.com/gogf/gf/contrib/drivers/sqlite/v2"
@@ -88,8 +90,9 @@ func envConfig(t *testing.T, envVar, dbType string) *dbconn.Config {
 	}
 }
 
-// exerciseTools 假定 gf_mcp_t_users / gf_mcp_t_orders 已建好（含索引/外键/两行数据），逐个跑 7 个工具
-func exerciseTools(t *testing.T) {
+// exerciseTools 假定 gf_mcp_t_users / gf_mcp_t_orders 已建好（含两行数据），逐个跑 7 个工具。
+// withForeignKeys 为 false 时跳过外键断言（ClickHouse 不支持外键约束）。
+func exerciseTools(t *testing.T, withForeignKeys bool) {
 	t.Helper()
 	reg := &tools.Reg{}
 
@@ -115,7 +118,7 @@ func exerciseTools(t *testing.T) {
 		t.Fatalf("get_table_info(users) 出现 indexes_error: %s", info)
 	}
 	infoOrders := callTool(t, (&tools.GetTableInfo{}).Handler(reg), map[string]any{"table": "gf_mcp_t_orders"})
-	if !strings.Contains(infoOrders, "constraint_name") || strings.Contains(infoOrders, "foreign_keys_error") {
+	if withForeignKeys && (!strings.Contains(infoOrders, "constraint_name") || strings.Contains(infoOrders, "foreign_keys_error")) {
 		t.Fatalf("get_table_info(orders) 外键信息异常: %s", infoOrders)
 	}
 
@@ -192,7 +195,7 @@ func TestIntegrationSQLite(t *testing.T) {
 		amount REAL
 	)`)
 	execDDL(t, db, `INSERT INTO gf_mcp_t_users (name, email, status) VALUES ('alice','alice@example.com','active'),('bob','bob@example.com','disabled')`)
-	exerciseTools(t)
+	exerciseTools(t, true)
 }
 
 func TestIntegrationMySQL(t *testing.T) {
@@ -219,7 +222,7 @@ func TestIntegrationMySQL(t *testing.T) {
 		CONSTRAINT fk_gf_mcp_orders_user FOREIGN KEY (user_id) REFERENCES gf_mcp_t_users(id)
 	)`)
 	execDDL(t, db, `INSERT INTO gf_mcp_t_users (name, email, status) VALUES ('alice','alice@example.com','active'),('bob','bob@example.com','disabled')`)
-	exerciseTools(t)
+	exerciseTools(t, true)
 }
 
 func TestIntegrationPG(t *testing.T) {
@@ -245,5 +248,41 @@ func TestIntegrationPG(t *testing.T) {
 		amount NUMERIC(10,2)
 	)`)
 	execDDL(t, db, `INSERT INTO gf_mcp_t_users (name, email, status) VALUES ('alice','alice@example.com','active'),('bob','bob@example.com','disabled')`)
-	exerciseTools(t)
+	exerciseTools(t, true)
+}
+
+func TestIntegrationClickHouse(t *testing.T) {
+	cfg := envConfig(t, "GF_MCP_TEST_CLICKHOUSE", "clickhouse")
+	if err := dbconn.Init(context.Background(), cfg); err != nil {
+		t.Fatalf("初始化 ClickHouse 失败: %v", err)
+	}
+	defer closeDefaultDB(t)
+	db := mustDB(t)
+	execDDL(t, db, `DROP TABLE IF EXISTS gf_mcp_t_orders`)
+	execDDL(t, db, `DROP TABLE IF EXISTS gf_mcp_t_users`)
+	execDDL(t, db, `CREATE TABLE gf_mcp_t_users (
+		id UInt64,
+		name String,
+		email String,
+		status String DEFAULT 'active',
+		created_at DateTime
+	) ENGINE = MergeTree ORDER BY id`)
+	execDDL(t, db, `CREATE TABLE gf_mcp_t_orders (
+		id UInt64,
+		user_id UInt64,
+		amount Decimal(10,2)
+	) ENGINE = MergeTree ORDER BY id`)
+	execDDL(t, db, `INSERT INTO gf_mcp_t_users (id, name, email, status) VALUES (1,'alice','alice@example.com','active'),(2,'bob','bob@example.com','disabled')`)
+	// ClickHouse 不支持外键约束，跳过外键断言
+	exerciseTools(t, false)
+
+	// ClickHouse 专项断言：主键（is_in_primary_key）与表统计（system.tables）
+	reg := &tools.Reg{}
+	info := callTool(t, (&tools.GetTableInfo{}).Handler(reg), map[string]any{"table": "gf_mcp_t_users"})
+	if !strings.Contains(info, `"primary_key":"true"`) {
+		t.Fatalf("get_table_info 未识别 ClickHouse 主键: %s", info)
+	}
+	if !strings.Contains(info, `"engine":"MergeTree"`) || strings.Contains(info, "table_stat_error") {
+		t.Fatalf("get_table_info 表统计异常: %s", info)
+	}
 }

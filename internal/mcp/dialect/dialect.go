@@ -34,6 +34,9 @@ type IDialect interface {
 	QuoteIdent(name string) string
 	// Paginate 为 SELECT 语句施加条数限制
 	Paginate(selectSQL string, limit int) string
+	// TableFields 返回表列信息（列名 → 列定义）。默认实现直接调用 gdb.TableFields；
+	// 驱动元数据查询不满足需求（如需按当前库过滤、需参数绑定）的方言可覆盖。
+	TableFields(ctx context.Context, db gdb.DB, table string) (map[string]*gdb.TableField, error)
 	// Indexes 表索引列表
 	Indexes(ctx context.Context, db gdb.DB, table string) (gdb.Result, error)
 	// ForeignKeys 表外键列表
@@ -107,6 +110,11 @@ func (d *BaseDialect) Paginate(selectSQL string, limit int) string {
 	}
 	sqlStr := strings.TrimRight(strings.TrimSpace(selectSQL), "; \t\n\r")
 	return fmt.Sprintf("%s LIMIT %d", sqlStr, limit)
+}
+
+// TableFields 默认实现：直接使用驱动提供的 TableFields（gf 各驱动内部已做引用/缓存处理）
+func (d *BaseDialect) TableFields(ctx context.Context, db gdb.DB, table string) (map[string]*gdb.TableField, error) {
+	return db.TableFields(ctx, table)
 }
 
 // PrimaryKeys 默认实现：从 TableFields 中取 Key 为 PRI 的列（mysql/pgsql/sqlite 等驱动回填该标记）

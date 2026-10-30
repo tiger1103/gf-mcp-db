@@ -87,7 +87,7 @@ func (t *GetEnumValues) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 			}
 
 			columnType := ""
-			if fields, fieldsErr := db.TableFields(ctx, table); fieldsErr == nil {
+			if fields, fieldsErr := d.TableFields(ctx, db, table); fieldsErr == nil {
 				for _, f := range fields {
 					if strings.EqualFold(f.Name, column) {
 						columnType = f.Type

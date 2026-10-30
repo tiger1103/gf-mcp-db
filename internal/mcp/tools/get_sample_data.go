@@ -69,7 +69,7 @@ func (t *GetSampleData) Handler(r *Reg) func(ctx context.Context, request mcp.Ca
 			db := getDB(ctx)
 			d := currentDialect(ctx, db)
 
-			fields, fieldsErr := db.TableFields(ctx, table)
+			fields, fieldsErr := d.TableFields(ctx, db, table)
 			liberr.ErrIsNil(ctx, fieldsErr)
 			if len(fields) == 0 {
 				panic(liberr.NewCode(consts.CodeInfo, "表不存在或没有列信息："+table))
